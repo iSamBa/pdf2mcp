@@ -9,7 +9,7 @@ Turn any PDF folder into a searchable MCP server.
 Clone the repo, then install globally with `uv tool`:
 
 ```bash
-git clone <repo-url> pdf2mcp
+git clone https://github.com/iSamBa/pdf2mcp.git
 uv tool install ./pdf2mcp
 ```
 
