@@ -3,6 +3,7 @@ name = "pdf2mcp"
 version = "0.1.0"
 description = "Turn any PDF folder into a searchable MCP server"
 readme = "README.md"
+license = { text = "MIT" }
 authors = [
     { name = "iSamBa", email = "bahou.aissam@gmail.com" }
 ]
