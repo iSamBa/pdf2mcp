@@ -5,7 +5,15 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from pdf2mcp.search import SearchResult
-from pdf2mcp.server import get_sections, get_status, list_docs, search_docs
+from pdf2mcp.server import (
+    get_sections,
+    get_status,
+    list_docs,
+    read_page,
+    read_section,
+    search_docs,
+    search_in_doc,
+)
 
 
 def _make_settings() -> MagicMock:
@@ -270,3 +278,153 @@ class TestGetStatus:
 
         result = get_status()
         assert "no documents ingested" in result
+
+
+# ── search_in_doc ─────────────────────────────────────────────────
+
+
+class TestSearchInDoc:
+    """Test the search_in_doc tool."""
+
+    @patch("pdf2mcp.server.search_in_document")
+    @patch("pdf2mcp.server.get_settings")
+    def test_returns_formatted_results(
+        self, mock_settings: MagicMock, mock_search: MagicMock
+    ) -> None:
+        mock_settings.return_value = _make_settings()
+        mock_search.return_value = [
+            SearchResult(
+                text="Torque specs",
+                score=0.1,
+                source_file="manual.pdf",
+                page_numbers=[5],
+                section_title="Specs",
+            )
+        ]
+
+        result = search_in_doc("torque", "manual.pdf")
+        assert "Torque specs" in result
+        assert "manual.pdf" in result
+        mock_search.assert_called_once()
+
+    @patch("pdf2mcp.server.search_in_document")
+    @patch("pdf2mcp.server.get_settings")
+    def test_clamps_num_results(
+        self, mock_settings: MagicMock, mock_search: MagicMock
+    ) -> None:
+        mock_settings.return_value = _make_settings()
+        mock_search.return_value = []
+
+        search_in_doc("query", "test.pdf", num_results=100)
+        call_kwargs = mock_search.call_args
+        assert call_kwargs.kwargs["num_results"] == 20
+
+    @patch("pdf2mcp.server.search_in_document")
+    @patch("pdf2mcp.server.get_settings")
+    def test_empty_results(
+        self, mock_settings: MagicMock, mock_search: MagicMock
+    ) -> None:
+        mock_settings.return_value = _make_settings()
+        mock_search.return_value = []
+
+        result = search_in_doc("query", "test.pdf")
+        assert "No results found" in result
+
+    @patch("pdf2mcp.server.get_settings")
+    def test_handles_failure(self, mock_settings: MagicMock) -> None:
+        mock_settings.side_effect = RuntimeError("error")
+
+        result = search_in_doc("query", "test.pdf")
+        assert "failed" in result.lower()
+
+
+# ── read_page ─────────────────────────────────────────────────────
+
+
+class TestReadPage:
+    """Test the read_page tool."""
+
+    @patch("pdf2mcp.server.get_page_chunks")
+    @patch("pdf2mcp.server.get_settings")
+    def test_returns_formatted_page(
+        self, mock_settings: MagicMock, mock_chunks: MagicMock
+    ) -> None:
+        mock_settings.return_value = _make_settings()
+        mock_chunks.return_value = [
+            {
+                "text": "Page content here",
+                "source_file": "manual.pdf",
+                "page_numbers": [5],
+                "section_title": "Intro",
+                "chunk_index": 0,
+            }
+        ]
+
+        result = read_page("manual.pdf", 5)
+        assert "Page 5" in result
+        assert "manual.pdf" in result
+        assert "Page content here" in result
+
+    @patch("pdf2mcp.server.get_page_chunks")
+    @patch("pdf2mcp.server.get_settings")
+    def test_page_not_found(
+        self, mock_settings: MagicMock, mock_chunks: MagicMock
+    ) -> None:
+        mock_settings.return_value = _make_settings()
+        mock_chunks.return_value = []
+
+        result = read_page("manual.pdf", 999)
+        assert "No content found" in result
+
+    @patch("pdf2mcp.server.get_settings")
+    def test_handles_failure(self, mock_settings: MagicMock) -> None:
+        mock_settings.side_effect = RuntimeError("error")
+
+        result = read_page("test.pdf", 1)
+        assert "Failed" in result
+
+
+# ── read_section ──────────────────────────────────────────────────
+
+
+class TestReadSection:
+    """Test the read_section tool."""
+
+    @patch("pdf2mcp.server.get_section_chunks")
+    @patch("pdf2mcp.server.get_settings")
+    def test_returns_formatted_section(
+        self, mock_settings: MagicMock, mock_chunks: MagicMock
+    ) -> None:
+        mock_settings.return_value = _make_settings()
+        mock_chunks.return_value = [
+            {
+                "text": "Safety content",
+                "source_file": "manual.pdf",
+                "page_numbers": [3, 4],
+                "section_title": "Safety",
+                "chunk_index": 0,
+            }
+        ]
+
+        result = read_section("manual.pdf", "Safety")
+        assert "Safety" in result
+        assert "manual.pdf" in result
+        assert "Safety content" in result
+
+    @patch("pdf2mcp.server.get_section_chunks")
+    @patch("pdf2mcp.server.get_settings")
+    def test_section_not_found(
+        self, mock_settings: MagicMock, mock_chunks: MagicMock
+    ) -> None:
+        mock_settings.return_value = _make_settings()
+        mock_chunks.return_value = []
+
+        result = read_section("manual.pdf", "Nonexistent")
+        assert "No content found" in result
+
+    @patch("pdf2mcp.server.get_settings")
+    def test_handles_failure(self, mock_settings: MagicMock) -> None:
+        mock_settings.side_effect = RuntimeError("error")
+
+        result = read_section("test.pdf", "Intro")
+        assert "Failed" in result

@@ -11,10 +11,15 @@ import pytest
 from pdf2mcp.models import ChunkMetadata, DocumentChunk
 from pdf2mcp.search import (
     SearchResult,
+    format_page_chunks,
     format_results,
+    format_section_chunks,
     get_document_sections,
+    get_page_chunks,
+    get_section_chunks,
     list_ingested_documents,
     search_documents,
+    search_in_document,
 )
 from pdf2mcp.store import get_db, record_ingestion, upsert_chunks
 
@@ -371,3 +376,238 @@ class TestGetDocumentSections:
 
         sections = get_document_sections("test.pdf", settings)
         assert sections == ["Real Section"]
+
+
+# ── search_in_document ────────────────────────────────────────────
+
+
+class TestSearchInDocument:
+    """Test the search_in_document function."""
+
+    def test_empty_query_returns_empty(self, settings: MagicMock) -> None:
+        assert search_in_document("", "test.pdf", settings) == []
+
+    def test_whitespace_query_returns_empty(self, settings: MagicMock) -> None:
+        assert search_in_document("   ", "test.pdf", settings) == []
+
+    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    def test_returns_only_matching_document(
+        self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
+    ) -> None:
+        _populate_db(db, source_file="manual.pdf", count=3)
+        _populate_db(db, source_file="guide.pdf", count=3)
+
+        results = search_in_document("test query", "manual.pdf", settings, num_results=5)
+
+        assert len(results) > 0
+        for result in results:
+            assert result.source_file == "manual.pdf"
+
+    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    def test_unknown_file_returns_empty(
+        self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
+    ) -> None:
+        _populate_db(db, source_file="manual.pdf", count=3)
+
+        results = search_in_document("test query", "unknown.pdf", settings)
+        assert results == []
+
+    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    def test_empty_database_returns_empty(
+        self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
+    ) -> None:
+        results = search_in_document("test query", "test.pdf", settings)
+        assert results == []
+
+    @patch("pdf2mcp.search.embed_texts")
+    def test_returns_empty_on_embedding_failure(
+        self, mock_embed: MagicMock, settings: MagicMock, db: MagicMock
+    ) -> None:
+        _populate_db(db, count=1)
+        mock_embed.side_effect = RuntimeError("API error")
+
+        results = search_in_document("query", "test.pdf", settings)
+        assert results == []
+
+    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    def test_respects_num_results(
+        self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
+    ) -> None:
+        _populate_db(db, source_file="test.pdf", count=5)
+
+        results = search_in_document("query", "test.pdf", settings, num_results=2)
+        assert len(results) == 2
+
+
+# ── get_page_chunks ───────────────────────────────────────────────
+
+
+class TestGetPageChunks:
+    """Test the get_page_chunks function."""
+
+    def test_empty_database(self, settings: MagicMock, db: MagicMock) -> None:
+        result = get_page_chunks("test.pdf", 1, settings)
+        assert result == []
+
+    def test_unknown_filename(self, settings: MagicMock, db: MagicMock) -> None:
+        _populate_db(db, source_file="known.pdf", count=3)
+        result = get_page_chunks("unknown.pdf", 1, settings)
+        assert result == []
+
+    def test_returns_matching_page(self, settings: MagicMock, db: MagicMock) -> None:
+        _populate_db(db, source_file="manual.pdf", count=3)
+
+        # _make_chunks assigns page_numbers=[i+1], so page 2 -> chunk_index 1
+        result = get_page_chunks("manual.pdf", 2, settings)
+        assert len(result) == 1
+        assert result[0]["chunk_index"] == 1
+        assert 2 in result[0]["page_numbers"]
+
+    def test_returns_multiple_chunks_for_same_page(
+        self, settings: MagicMock, db: MagicMock
+    ) -> None:
+        chunks = [
+            DocumentChunk(
+                text=f"Chunk {i}",
+                metadata=ChunkMetadata(
+                    source_file="manual.pdf",
+                    page_numbers=[5],
+                    section_title="Section A",
+                    chunk_index=i,
+                ),
+            )
+            for i in range(3)
+        ]
+        embeddings = _make_embeddings(count=3)
+        upsert_chunks(db, chunks, embeddings, dimensions=8)
+
+        result = get_page_chunks("manual.pdf", 5, settings)
+        assert len(result) == 3
+        # Verify ordered by chunk_index
+        indices = [r["chunk_index"] for r in result]
+        assert indices == sorted(indices)
+
+    def test_page_not_found(self, settings: MagicMock, db: MagicMock) -> None:
+        _populate_db(db, source_file="manual.pdf", count=3)
+        result = get_page_chunks("manual.pdf", 999, settings)
+        assert result == []
+
+
+# ── get_section_chunks ────────────────────────────────────────────
+
+
+class TestGetSectionChunks:
+    """Test the get_section_chunks function."""
+
+    def test_empty_database(self, settings: MagicMock, db: MagicMock) -> None:
+        result = get_section_chunks("test.pdf", "Intro", settings)
+        assert result == []
+
+    def test_unknown_filename(self, settings: MagicMock, db: MagicMock) -> None:
+        _populate_db(db, source_file="known.pdf", count=3)
+        result = get_section_chunks("unknown.pdf", "Section 0", settings)
+        assert result == []
+
+    def test_returns_matching_section(self, settings: MagicMock, db: MagicMock) -> None:
+        _populate_db(db, source_file="manual.pdf", count=3)
+
+        result = get_section_chunks("manual.pdf", "Section 1", settings)
+        assert len(result) == 1
+        assert result[0]["section_title"] == "Section 1"
+
+    def test_returns_multiple_chunks_for_same_section(
+        self, settings: MagicMock, db: MagicMock
+    ) -> None:
+        chunks = [
+            DocumentChunk(
+                text=f"Chunk {i}",
+                metadata=ChunkMetadata(
+                    source_file="manual.pdf",
+                    page_numbers=[i + 1],
+                    section_title="Safety",
+                    chunk_index=i,
+                ),
+            )
+            for i in range(3)
+        ]
+        embeddings = _make_embeddings(count=3)
+        upsert_chunks(db, chunks, embeddings, dimensions=8)
+
+        result = get_section_chunks("manual.pdf", "Safety", settings)
+        assert len(result) == 3
+        indices = [r["chunk_index"] for r in result]
+        assert indices == sorted(indices)
+
+    def test_section_not_found(self, settings: MagicMock, db: MagicMock) -> None:
+        _populate_db(db, source_file="manual.pdf", count=3)
+        result = get_section_chunks("manual.pdf", "Nonexistent", settings)
+        assert result == []
+
+    def test_handles_single_quote_in_section_title(
+        self, settings: MagicMock, db: MagicMock
+    ) -> None:
+        chunks = [
+            DocumentChunk(
+                text="Content",
+                metadata=ChunkMetadata(
+                    source_file="manual.pdf",
+                    page_numbers=[1],
+                    section_title="What's New",
+                    chunk_index=0,
+                ),
+            )
+        ]
+        embeddings = _make_embeddings(count=1)
+        upsert_chunks(db, chunks, embeddings, dimensions=8)
+
+        result = get_section_chunks("manual.pdf", "What's New", settings)
+        assert len(result) == 1
+
+
+# ── format_page_chunks ────────────────────────────────────────────
+
+
+class TestFormatPageChunks:
+    """Test page chunk formatting."""
+
+    def test_empty_chunks(self) -> None:
+        output = format_page_chunks([], "test.pdf", 5)
+        assert "No content found" in output
+        assert "page 5" in output
+        assert "test.pdf" in output
+
+    def test_formats_with_header(self) -> None:
+        chunks = [
+            {"text": "Hello world", "section_title": "Intro", "chunk_index": 0,
+             "source_file": "test.pdf", "page_numbers": [1]},
+        ]
+        output = format_page_chunks(chunks, "test.pdf", 1)
+        assert "Page 1 of test.pdf" in output
+        assert "Hello world" in output
+        assert "## Intro" in output
+
+
+# ── format_section_chunks ─────────────────────────────────────────
+
+
+class TestFormatSectionChunks:
+    """Test section chunk formatting."""
+
+    def test_empty_chunks(self) -> None:
+        output = format_section_chunks([], "test.pdf", "Intro")
+        assert "No content found" in output
+        assert "Intro" in output
+        assert "test.pdf" in output
+
+    def test_formats_with_header_and_pages(self) -> None:
+        chunks = [
+            {"text": "First chunk", "section_title": "Safety", "chunk_index": 0,
+             "source_file": "manual.pdf", "page_numbers": [3, 4]},
+            {"text": "Second chunk", "section_title": "Safety", "chunk_index": 1,
+             "source_file": "manual.pdf", "page_numbers": [4, 5]},
+        ]
+        output = format_section_chunks(chunks, "manual.pdf", "Safety")
+        assert "Section 'Safety' from manual.pdf" in output
+        assert "pages 3, 4, 5" in output
+        assert "First chunk" in output
+        assert "Second chunk" in output

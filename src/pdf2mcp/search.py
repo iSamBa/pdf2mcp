@@ -13,10 +13,15 @@ from pdf2mcp.store import DOCUMENTS_TABLE, METADATA_TABLE, _escape_filter_value,
 
 __all__ = [
     "SearchResult",
+    "format_page_chunks",
     "format_results",
+    "format_section_chunks",
     "get_document_sections",
+    "get_page_chunks",
+    "get_section_chunks",
     "list_ingested_documents",
     "search_documents",
+    "search_in_document",
 ]
 
 logger = logging.getLogger(__name__)
@@ -178,3 +183,224 @@ def get_document_sections(filename: str, settings: Settings) -> list[str]:
             sections.append(title)
 
     return sections
+
+
+def search_in_document(
+    query: str,
+    filename: str,
+    settings: Settings,
+    *,
+    num_results: int | None = None,
+) -> list[SearchResult]:
+    """Search within a single document by filtering on source_file.
+
+    Args:
+        query: Natural language search query.
+        filename: The PDF filename to scope the search to.
+        settings: Application settings.
+        num_results: Number of results to return.
+
+    Returns:
+        Ordered list of search results from the specified document.
+    """
+    if not query or not query.strip():
+        return []
+
+    if num_results is None:
+        num_results = settings.default_num_results
+
+    try:
+        vectors = embed_texts([query.strip()], settings)
+    except Exception:
+        logger.warning("Failed to embed search query", exc_info=True)
+        return []
+    query_vector = vectors[0]
+
+    db = get_db(settings)
+    if DOCUMENTS_TABLE not in db.list_tables().tables:
+        logger.warning("No documents table found. Run ingestion first.")
+        return []
+
+    table = db.open_table(DOCUMENTS_TABLE)
+    if table.count_rows() == 0:
+        logger.warning("Documents table is empty. Run ingestion first.")
+        return []
+
+    escaped = _escape_filter_value(filename)
+    rows: list[dict[str, Any]] = (
+        table.search(query_vector)
+        .where(f"source_file = '{escaped}'")
+        .limit(num_results)
+        .to_list()
+    )
+
+    return [
+        SearchResult(
+            text=row["text"],
+            score=row.get("_distance", 0.0),
+            source_file=row["source_file"],
+            page_numbers=row.get("page_numbers", []),
+            section_title=row.get("section_title", ""),
+        )
+        for row in rows
+    ]
+
+
+def get_page_chunks(
+    filename: str,
+    page: int,
+    settings: Settings,
+) -> list[dict[str, Any]]:
+    """Return all chunks whose page_numbers contain the given page.
+
+    Results are ordered by chunk_index. This is a pure metadata query
+    (no embeddings needed).
+
+    Args:
+        filename: The PDF filename.
+        page: The page number to retrieve.
+        settings: Application settings.
+
+    Returns:
+        List of dicts with keys: text, source_file, page_numbers,
+        section_title, chunk_index.
+    """
+    db = get_db(settings)
+    if DOCUMENTS_TABLE not in db.list_tables().tables:
+        return []
+
+    table = db.open_table(DOCUMENTS_TABLE)
+    escaped = _escape_filter_value(filename)
+    arrow_table = (
+        table.search()
+        .where(f"source_file = '{escaped}'")
+        .select(["text", "source_file", "page_numbers", "section_title", "chunk_index"])
+        .to_arrow()
+    )
+
+    if arrow_table.num_rows == 0:
+        return []
+
+    rows = arrow_table.to_pydict()
+    results = []
+    for i in range(arrow_table.num_rows):
+        page_numbers = rows["page_numbers"][i]
+        if page in page_numbers:
+            results.append(
+                {
+                    "text": rows["text"][i],
+                    "source_file": rows["source_file"][i],
+                    "page_numbers": page_numbers,
+                    "section_title": rows["section_title"][i],
+                    "chunk_index": rows["chunk_index"][i],
+                }
+            )
+
+    results.sort(key=lambda r: r["chunk_index"])
+    return results
+
+
+def get_section_chunks(
+    filename: str,
+    section_title: str,
+    settings: Settings,
+) -> list[dict[str, Any]]:
+    """Return all chunks matching a source_file and section_title.
+
+    Results are ordered by chunk_index. This is a pure metadata query
+    (no embeddings needed).
+
+    Args:
+        filename: The PDF filename.
+        section_title: The section title to retrieve.
+        settings: Application settings.
+
+    Returns:
+        List of dicts with keys: text, source_file, page_numbers,
+        section_title, chunk_index.
+    """
+    db = get_db(settings)
+    if DOCUMENTS_TABLE not in db.list_tables().tables:
+        return []
+
+    table = db.open_table(DOCUMENTS_TABLE)
+    escaped_file = _escape_filter_value(filename)
+    escaped_section = _escape_filter_value(section_title)
+    arrow_table = (
+        table.search()
+        .where(
+            f"source_file = '{escaped_file}' AND section_title = '{escaped_section}'"
+        )
+        .select(["text", "source_file", "page_numbers", "section_title", "chunk_index"])
+        .to_arrow()
+    )
+
+    if arrow_table.num_rows == 0:
+        return []
+
+    rows = arrow_table.to_pydict()
+    results = []
+    for i in range(arrow_table.num_rows):
+        results.append(
+            {
+                "text": rows["text"][i],
+                "source_file": rows["source_file"][i],
+                "page_numbers": rows["page_numbers"][i],
+                "section_title": rows["section_title"][i],
+                "chunk_index": rows["chunk_index"][i],
+            }
+        )
+
+    results.sort(key=lambda r: r["chunk_index"])
+    return results
+
+
+def format_page_chunks(chunks: list[dict[str, Any]], filename: str, page: int) -> str:
+    """Format page chunks for LLM consumption.
+
+    Joins chunk texts in document order with a metadata header.
+    """
+    if not chunks:
+        return (
+            f"No content found for page {page} in '{filename}'. "
+            "Check the filename with list_docs."
+        )
+
+    sections = []
+    current_section = None
+    for chunk in chunks:
+        title = chunk.get("section_title", "")
+        if title != current_section:
+            current_section = title
+            if title:
+                sections.append(f"\n## {title}\n")
+
+        sections.append(chunk["text"])
+
+    header = f"Page {page} of {filename}:\n"
+    return header + "\n".join(sections)
+
+
+def format_section_chunks(
+    chunks: list[dict[str, Any]], filename: str, section_title: str
+) -> str:
+    """Format section chunks for LLM consumption.
+
+    Joins chunk texts in document order with a metadata header.
+    """
+    if not chunks:
+        return (
+            f"No content found for section '{section_title}' in '{filename}'. "
+            "Check available sections with get_sections."
+        )
+
+    pages: set[int] = set()
+    for chunk in chunks:
+        pages.update(chunk.get("page_numbers", []))
+
+    sorted_pages = sorted(pages)
+    page_info = ", ".join(str(p) for p in sorted_pages) if sorted_pages else "unknown"
+
+    header = f"Section '{section_title}' from {filename} (pages {page_info}):\n\n"
+    body = "\n\n".join(chunk["text"] for chunk in chunks)
+    return header + body

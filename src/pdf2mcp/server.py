@@ -12,10 +12,15 @@ from mcp.server.fastmcp import FastMCP
 
 from pdf2mcp.config import get_settings
 from pdf2mcp.search import (
+    format_page_chunks,
     format_results,
+    format_section_chunks,
     get_document_sections,
+    get_page_chunks,
+    get_section_chunks,
     list_ingested_documents,
     search_documents,
+    search_in_document,
 )
 
 __all__ = ["mcp", "run_server"]
@@ -27,15 +32,18 @@ mcp = FastMCP(name="pdf-docs")
 
 @mcp.tool()
 def search_docs(query: str, num_results: int = 5) -> str:
-    """Search ingested PDF documentation.
+    """Search across ALL ingested PDFs for relevant passages.
 
-    Performs semantic search across all ingested PDF documents.
-    Returns relevant passages with source file, section, and page information.
+    Use this when you don't know which document contains the answer.
+    Returns ranked results with source file, section title, and page numbers.
+    Each result includes the matching text passage.
 
-    Use this tool when you need to find information in the ingested documents.
+    To search within a specific document instead, use search_in_doc.
+    To browse a document's structure first, use get_sections.
 
     Args:
-        query: Natural language search query describing what you're looking for.
+        query: Natural language search query (e.g., 'safety requirements for
+            outdoor installation').
         num_results: Number of results to return (default: 5, max: 20).
     """
     num_results = min(max(num_results, 1), 20)
@@ -52,11 +60,89 @@ def search_docs(query: str, num_results: int = 5) -> str:
 
 
 @mcp.tool()
-def list_docs() -> str:
-    """List all ingested documentation.
+def search_in_doc(query: str, filename: str, num_results: int = 5) -> str:
+    """Search within a SINGLE document for relevant passages.
 
-    Returns a list of all PDF documents that have been processed and
-    are available for search, including chunk counts and file hashes.
+    Use this when you already know which PDF to search — avoids noise from
+    other documents. Returns ranked results with section title and page numbers.
+
+    Get valid filenames from list_docs first.
+
+    Args:
+        query: Natural language search query (e.g., 'maximum torque settings').
+        filename: The PDF filename to search within (e.g., 'manual.pdf').
+        num_results: Number of results to return (default: 5, max: 20).
+    """
+    num_results = min(max(num_results, 1), 20)
+
+    try:
+        settings = get_settings()
+        results = search_in_document(
+            query, filename, settings, num_results=num_results
+        )
+        return format_results(results)
+    except Exception:
+        logger.exception("Scoped search failed")
+        return (
+            f"Search in '{filename}' failed. "
+            "Check the filename with list_docs and ensure OPENAI_API_KEY is set."
+        )
+
+
+@mcp.tool()
+def read_page(filename: str, page: int) -> str:
+    """Read the full content of a specific page from a document.
+
+    Use this when you know which page you need — e.g., after seeing a page
+    reference in a search result or table of contents. Returns all text chunks
+    from that page in document order, grouped by section.
+
+    Get valid filenames from list_docs.
+
+    Args:
+        filename: The PDF filename (e.g., 'manual.pdf').
+        page: The page number to read (1-indexed).
+    """
+    try:
+        settings = get_settings()
+        chunks = get_page_chunks(filename, page, settings)
+        return format_page_chunks(chunks, filename, page)
+    except Exception:
+        logger.exception("Read page failed")
+        return f"Failed to read page {page} from '{filename}'."
+
+
+@mcp.tool()
+def read_section(filename: str, section_title: str) -> str:
+    """Read the full content of a named section from a document.
+
+    Use this after get_sections to read a section you're interested in.
+    Returns all text chunks for that section in document order, with page
+    numbers.
+
+    Get available section titles from get_sections first.
+
+    Args:
+        filename: The PDF filename (e.g., 'manual.pdf').
+        section_title: Exact section title as returned by get_sections
+            (e.g., 'Safety Guidelines').
+    """
+    try:
+        settings = get_settings()
+        chunks = get_section_chunks(filename, section_title, settings)
+        return format_section_chunks(chunks, filename, section_title)
+    except Exception:
+        logger.exception("Read section failed")
+        return f"Failed to read section '{section_title}' from '{filename}'."
+
+
+@mcp.tool()
+def list_docs() -> str:
+    """List all ingested PDFs available for search.
+
+    Start here to discover which documents are available. Returns filenames,
+    chunk counts, and file hashes. Use the filenames with search_in_doc,
+    get_sections, read_page, or read_section.
     """
     try:
         settings = get_settings()
@@ -80,11 +166,13 @@ def list_docs() -> str:
 
 @mcp.tool()
 def get_sections(filename: str) -> str:
-    """Get the section structure of a specific document.
+    """Get the table of contents (section headings) of a document.
 
-    Returns all section headings found in the specified PDF document,
-    in the order they appear. Useful for understanding the document's
-    structure before searching for specific content.
+    Use this to understand a document's structure before diving in.
+    Returns numbered section titles in document order. Then use read_section
+    to read any section, or search_in_doc to search within the document.
+
+    Get valid filenames from list_docs first.
 
     Args:
         filename: The PDF filename (e.g., 'manual.pdf').
