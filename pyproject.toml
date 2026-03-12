@@ -1,6 +1,6 @@
 [project]
 name = "pdf2mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn any PDF folder into a searchable MCP server"
 readme = "README.md"
 license = { text = "MIT" }
