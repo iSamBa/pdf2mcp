@@ -11,13 +11,15 @@ from pathlib import Path
 from pdf2mcp import __version__
 
 _ENV_TEMPLATE = """\
+# ── Server settings (used by the pdf2mcp server process) ──────────────
+
 # Required: OpenAI API key for embeddings
 OPENAI_API_KEY=sk-your-api-key-here
 
 # Optional: OpenAI base URL (for Azure, local proxies, or compatible providers)
 # PDF2MCP_OPENAI_BASE_URL=https://api.openai.com/v1
 
-# Optional: Override defaults
+# Optional: Override server defaults
 # PDF2MCP_DOCS_DIR=docs
 # PDF2MCP_DATA_DIR=data
 # PDF2MCP_EMBEDDING_MODEL=text-embedding-3-small
@@ -25,6 +27,14 @@ OPENAI_API_KEY=sk-your-api-key-here
 # PDF2MCP_CHUNK_OVERLAP=50
 # PDF2MCP_DEFAULT_NUM_RESULTS=5
 # PDF2MCP_SERVER_NAME=pdf-docs
+# PDF2MCP_SERVER_HOST=127.0.0.1
+# PDF2MCP_SERVER_PORT=8000
+
+# ── Client settings (used by MCP clients to connect) ─────────────────
+
+# PDF2MCP_CLIENT_SERVER_NAME=pdf-docs
+# PDF2MCP_CLIENT_SERVER_URL=http://127.0.0.1:8000/mcp
+# PDF2MCP_CLIENT_TRANSPORT=streamable-http
 """
 
 
@@ -107,11 +117,19 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 
 def cmd_config(args: argparse.Namespace) -> None:
-    """Print MCP client configuration snippets."""
-    name = args.name or "pdf-docs"
-    transport = args.transport or "stdio"
-    host = args.host or "127.0.0.1"
-    port = args.port or 8000
+    """Print MCP client configuration snippets.
+
+    Defaults to HTTP (streamable-http) — the recommended transport when
+    server and client are separate processes.  Use ``--transport stdio``
+    for the legacy all-in-one mode where the client spawns the server.
+    """
+    from pdf2mcp.config import ClientSettings
+
+    # Start from ClientSettings defaults, then apply CLI overrides
+    cs = ClientSettings()
+    name = args.name or cs.server_name
+    transport = args.transport or cs.transport
+    url = args.url or cs.server_url
 
     clients = (
         [args.client]
@@ -120,7 +138,7 @@ def cmd_config(args: argparse.Namespace) -> None:
     )
 
     for client in clients:
-        snippet = _build_config_snippet(client, name, transport, host, port)
+        snippet = _build_config_snippet(client, name, transport, url)
         label = _client_label(client)
         file_hint = _client_file(client)
         print(f"\n# {label} ({file_hint})")
@@ -128,8 +146,9 @@ def cmd_config(args: argparse.Namespace) -> None:
 
         if client == "claude-desktop" and transport != "stdio":
             print(
-                "# (Claude Desktop supports stdio only."
-                " Start server manually for HTTP.)"
+                "# Note: Claude Desktop requires stdio. "
+                "Start the server separately and use another client, "
+                "or pass --transport stdio."
             )
 
 
@@ -137,19 +156,10 @@ def _build_config_snippet(
     client: str,
     name: str,
     transport: str,
-    host: str,
-    port: int,
+    url: str,
 ) -> dict[str, object]:
     """Build a config snippet for a specific client."""
     is_http = transport != "stdio"
-
-    if client == "claude-desktop":
-        # Claude Desktop always uses stdio
-        server_config: dict[str, object] = {
-            "command": "uv",
-            "args": ["run", "pdf2mcp", "serve"],
-        }
-        return {"mcpServers": {name: server_config}}
 
     if client == "vscode":
         top_key = "servers"
@@ -157,9 +167,9 @@ def _build_config_snippet(
         top_key = "mcpServers"
 
     if is_http:
-        server_config = {
+        server_config: dict[str, object] = {
             "type": "http",
-            "url": f"http://{host}:{port}/mcp",
+            "url": url,
         }
     else:
         server_config = {
@@ -219,11 +229,22 @@ def cmd_init(args: argparse.Namespace) -> None:
     )
 
 
+_BANNER = r"""
+██████╗ ██████╗ ███████╗██████╗ ███╗   ███╗ ██████╗██████╗
+██╔══██╗██╔══██╗██╔════╝╚════██╗████╗ ████║██╔════╝██╔══██╗
+██████╔╝██║  ██║█████╗   █████╔╝██╔████╔██║██║     ██████╔╝
+██╔═══╝ ██║  ██║██╔══╝  ██╔═══╝ ██║╚██╔╝██║██║     ██╔═══╝
+██║     ██████╔╝██║     ███████╗██║ ╚═╝ ██║╚██████╗██║
+╚═╝     ╚═════╝ ╚═╝     ╚══════╝╚═╝     ╚═╝ ╚═════╝╚═╝
+"""
+
+
 def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="pdf2mcp",
-        description="Turn any PDF folder into a searchable MCP server",
+        description=_BANNER + "Turn any PDF folder into a searchable MCP server",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
@@ -295,18 +316,12 @@ def main() -> None:
         "--transport",
         choices=["stdio", "streamable-http"],
         default=None,
-        help="Transport protocol (default: stdio)",
+        help="Transport protocol (default: streamable-http)",
     )
     config_parser.add_argument(
-        "--host",
+        "--url",
         default=None,
-        help="Host for HTTP transport (default: 127.0.0.1)",
-    )
-    config_parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="Port for HTTP transport (default: 8000)",
+        help="Server URL for HTTP transport (default: http://127.0.0.1:8000/mcp)",
     )
     config_parser.add_argument(
         "--client",

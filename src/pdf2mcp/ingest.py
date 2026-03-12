@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from pdf2mcp.chunker import chunk_markdown
-from pdf2mcp.config import Settings, get_settings
+from pdf2mcp.config import ServerSettings, get_settings
 from pdf2mcp.embeddings import embed_texts
 from pdf2mcp.parser import discover_pdfs, parse_pdf
 from pdf2mcp.store import (
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def run_ingestion(
-    settings: Settings | None = None,
+    settings: ServerSettings | None = None,
     *,
     force: bool = False,
 ) -> None:

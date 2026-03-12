@@ -7,7 +7,7 @@ import logging
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
-from pdf2mcp.config import Settings
+from pdf2mcp.config import ServerSettings
 
 __all__ = ["embed_texts"]
 
@@ -27,7 +27,7 @@ def _embed_batch(client: OpenAI, texts: list[str], model: str) -> list[list[floa
 
 def embed_texts(
     texts: list[str],
-    settings: Settings,
+    settings: ServerSettings,
 ) -> list[list[float]]:
     """Embed a list of texts using OpenAI API with batching.
 

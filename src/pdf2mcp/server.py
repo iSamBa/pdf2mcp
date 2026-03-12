@@ -6,7 +6,10 @@ via the Model Context Protocol (MCP).
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import signal
+import sys
 
 from mcp.server.fastmcp import FastMCP
 
@@ -213,13 +216,89 @@ def get_status() -> str:
         return "Server running, but no documents ingested yet."
 
 
+_SHUTDOWN_TIMEOUT = 5  # seconds to wait before forcing exit
+
+
+def _cleanup() -> None:
+    """Run server-side cleanup before exit."""
+    logger.info("Running cleanup...")
+    get_settings.cache_clear()
+    logger.info("Cleanup complete")
+
+
+async def _run_http(host: str, port: int) -> None:
+    """Run the streamable-http transport with graceful shutdown."""
+    import uvicorn
+
+    app = mcp.streamable_http_app()
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_level=mcp.settings.log_level.lower(),
+        timeout_graceful_shutdown=_SHUTDOWN_TIMEOUT,
+    )
+    server = uvicorn.Server(config)
+
+    logger.info("Listening on http://%s:%d/mcp", host, port)
+    await server.serve()
+    _cleanup()
+    logger.info("Server stopped")
+
+
+async def _run_stdio() -> None:
+    """Run the stdio transport with graceful shutdown."""
+    shutdown_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _signal_handler() -> None:
+        logger.info("Received signal — initiating graceful shutdown")
+        shutdown_event.set()
+
+    if sys.platform != "win32":
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, _signal_handler)
+
+    task = asyncio.create_task(mcp.run_stdio_async())
+
+    done, pending = await asyncio.wait(
+        [task, asyncio.create_task(shutdown_event.wait())],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    if task not in done:
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=_SHUTDOWN_TIMEOUT)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            logger.info("Stdio task did not exit in time — forcing shutdown")
+
+    for p in pending:
+        p.cancel()
+        try:
+            await p
+        except asyncio.CancelledError:
+            pass
+
+    _cleanup()
+    logger.info("Server stopped")
+    # stdio reads block the event loop and cannot be cancelled;
+    # force-exit so the process doesn't hang.
+    import os
+
+    os._exit(0)
+
+
 def run_server(
     transport: str = "stdio",
     host: str = "127.0.0.1",
     port: int = 8000,
     name: str | None = None,
 ) -> None:
-    """Start the MCP server.
+    """Start the MCP server with graceful shutdown support.
+
+    Handles SIGINT and SIGTERM to drain connections (HTTP) or close
+    streams (stdio) before exiting.
 
     Args:
         transport: Transport protocol ("stdio" or "streamable-http").
@@ -230,9 +309,12 @@ def run_server(
     if name:
         mcp._mcp_server.name = name
 
-    if transport == "stdio":
-        mcp.run()
-    else:
-        mcp.settings.host = host
-        mcp.settings.port = port
-        mcp.run(transport="streamable-http")
+    try:
+        if transport == "stdio":
+            asyncio.run(_run_stdio())
+        else:
+            mcp.settings.host = host
+            mcp.settings.port = port
+            asyncio.run(_run_http(host, port))
+    except KeyboardInterrupt:
+        pass

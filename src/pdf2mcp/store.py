@@ -8,7 +8,7 @@ from typing import Any
 import lancedb  # type: ignore[import-untyped]
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from pdf2mcp.config import Settings
+from pdf2mcp.config import ServerSettings
 from pdf2mcp.models import DocumentChunk
 
 __all__ = [
@@ -39,7 +39,7 @@ def _table_exists(db: lancedb.DBConnection, name: str) -> bool:
     return name in db.list_tables().tables
 
 
-def get_db(settings: Settings) -> lancedb.DBConnection:
+def get_db(settings: ServerSettings) -> lancedb.DBConnection:
     """Open or create a LanceDB database in the configured data directory."""
     db_path = settings.data_dir / "lancedb"
     db_path.mkdir(parents=True, exist_ok=True)

@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from pdf2mcp.config import Settings
+from pdf2mcp.config import ServerSettings
 from pdf2mcp.embeddings import embed_texts
 from pdf2mcp.store import DOCUMENTS_TABLE, METADATA_TABLE, _escape_filter_value, get_db
 
@@ -39,7 +39,7 @@ class SearchResult(BaseModel):
 
 def search_documents(
     query: str,
-    settings: Settings,
+    settings: ServerSettings,
     *,
     num_results: int | None = None,
 ) -> list[SearchResult]:
@@ -123,7 +123,7 @@ def format_results(results: list[SearchResult]) -> str:
     return "\n\n".join(parts)
 
 
-def list_ingested_documents(settings: Settings) -> list[dict[str, Any]]:
+def list_ingested_documents(settings: ServerSettings) -> list[dict[str, Any]]:
     """List all ingested documents with metadata.
 
     Returns:
@@ -148,7 +148,7 @@ def list_ingested_documents(settings: Settings) -> list[dict[str, Any]]:
     ]
 
 
-def get_document_sections(filename: str, settings: Settings) -> list[str]:
+def get_document_sections(filename: str, settings: ServerSettings) -> list[str]:
     """Get unique section titles for a specific document.
 
     Returns:
@@ -188,7 +188,7 @@ def get_document_sections(filename: str, settings: Settings) -> list[str]:
 def search_in_document(
     query: str,
     filename: str,
-    settings: Settings,
+    settings: ServerSettings,
     *,
     num_results: int | None = None,
 ) -> list[SearchResult]:
@@ -249,7 +249,7 @@ def search_in_document(
 def get_page_chunks(
     filename: str,
     page: int,
-    settings: Settings,
+    settings: ServerSettings,
 ) -> list[dict[str, Any]]:
     """Return all chunks whose page_numbers contain the given page.
 
@@ -303,7 +303,7 @@ def get_page_chunks(
 def get_section_chunks(
     filename: str,
     section_title: str,
-    settings: Settings,
+    settings: ServerSettings,
 ) -> list[dict[str, Any]]:
     """Return all chunks matching a source_file and section_title.
 

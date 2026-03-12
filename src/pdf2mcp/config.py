@@ -1,4 +1,12 @@
-"""Configuration management using Pydantic Settings."""
+"""Configuration management using Pydantic Settings.
+
+Server and client concerns are separated:
+
+- ``ServerSettings`` holds everything the server needs to run (API keys,
+  paths, embedding/chunking parameters, bind address).
+- ``ClientSettings`` holds only what an MCP client needs to connect to a
+  running server (URL and server name).
+"""
 
 import os
 from functools import lru_cache
@@ -8,11 +16,21 @@ from dotenv import load_dotenv
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-__all__ = ["Settings", "get_settings"]
+__all__ = ["ClientSettings", "ServerSettings", "get_settings"]
 
 
-class Settings(BaseSettings):
-    """Application settings loaded from environment variables and .env file."""
+# ---------------------------------------------------------------------------
+# Server settings — used by the server process only
+# ---------------------------------------------------------------------------
+
+
+class ServerSettings(BaseSettings):
+    """Server-side settings loaded from environment variables and .env file.
+
+    These configure the internals of the pdf2mcp server: API keys, storage
+    paths, embedding/chunking parameters, and the network address the server
+    binds to.  MCP clients never need access to these values.
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -42,9 +60,9 @@ class Settings(BaseSettings):
     # Search
     default_num_results: int = 5
 
-    # Server
+    # Bind address (server-side only — clients use ClientSettings)
     server_name: str = "pdf-docs"
-    server_transport: str = "stdio"
+    server_transport: str = "streamable-http"
     server_host: str = "127.0.0.1"
     server_port: int = 8000
 
@@ -75,7 +93,45 @@ class Settings(BaseSettings):
         return values
 
 
+# ---------------------------------------------------------------------------
+# Client settings — what an MCP client needs to connect
+# ---------------------------------------------------------------------------
+
+
+class ClientSettings(BaseSettings):
+    """Client-side connection settings.
+
+    These describe how an MCP client (Claude Desktop, Cursor, VS Code, …)
+    should reach a *running* pdf2mcp server.  They carry no secrets and no
+    server internals.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_prefix="PDF2MCP_CLIENT_",
+        extra="ignore",
+    )
+
+    server_name: str = "pdf-docs"
+    server_url: str = "http://127.0.0.1:8000/mcp"
+    transport: str = "streamable-http"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# Backward-compatible alias
+Settings = ServerSettings
+
+
 @lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    """Load and return application settings (cached singleton)."""
-    return Settings()
+def get_settings() -> ServerSettings:
+    """Load and return server settings (cached singleton)."""
+    return ServerSettings()
+
+
+def get_client_settings() -> ClientSettings:
+    """Load and return client connection settings."""
+    return ClientSettings()
