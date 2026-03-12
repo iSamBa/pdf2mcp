@@ -9,30 +9,37 @@
 ╚═╝     ╚═════╝ ╚═╝     ╚══════╝╚═╝     ╚═╝ ╚═════╝╚═╝
 ```
 
-Turn any PDF folder into a searchable MCP server.
+[![PyPI](https://img.shields.io/pypi/v/pdf2mcp)](https://pypi.org/project/pdf2mcp/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+
+Turn any PDF folder into a searchable MCP server with semantic search.
 
 ## Installation
 
-Clone the repo, then install globally with `uv tool`:
+### From PyPI (recommended)
+
+```bash
+pip install pdf2mcp
+```
+
+Or with `uv`:
+
+```bash
+uv tool install pdf2mcp
+```
+
+### From source
 
 ```bash
 git clone https://github.com/iSamBa/pdf2mcp.git
 uv tool install ./pdf2mcp
 ```
 
-This makes `pdf2mcp` available as a command anywhere on your system.
-
 To update after pulling new changes:
 
 ```bash
 uv tool install --force ./pdf2mcp
-```
-
-To run directly from source without installing:
-
-```bash
-cd ./pdf2mcp
-uv run pdf2mcp --help
 ```
 
 ### Verify
@@ -188,8 +195,14 @@ The server exposes six tools:
 ## Development
 
 ```bash
+git clone https://github.com/iSamBa/pdf2mcp.git
+cd pdf2mcp
 uv sync --all-extras
 uv run pytest
 uv run ruff check src/
 uv run mypy src/
 ```
+
+## License
+
+[MIT](LICENSE)
