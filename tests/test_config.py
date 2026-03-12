@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -11,11 +12,18 @@ from pdf2mcp.config import Settings, get_settings
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove all PDF2MCP_ and OPENAI env vars before each test."""
+    """Remove all PDF2MCP_ and OPENAI env vars and prevent .env loading."""
     for key in list(os.environ):
-        if key.startswith("PDF2MCP_") or key == "OPENAI_API_KEY":
+        if key.startswith("PDF2MCP_") or key in ("OPENAI_API_KEY", "OPENAI_BASE_URL"):
             monkeypatch.delenv(key, raising=False)
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_dotenv():
+    """Prevent load_dotenv from loading the real .env file during tests."""
+    with patch("pdf2mcp.config.load_dotenv"):
+        yield
 
 
 class TestSettingsDefaults:
@@ -147,6 +155,34 @@ class TestSettingsPaths:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
         settings = Settings()
         assert isinstance(settings.data_dir, Path)
+
+
+class TestOpenAIBaseURL:
+    """Test openai_base_url resolution from env vars."""
+
+    def test_default_is_openai(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        settings = Settings()
+        assert settings.openai_base_url == "https://api.openai.com/v1"
+
+    def test_picks_up_prefixed_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_OPENAI_BASE_URL", "https://proxy.example.com/v1")
+        settings = Settings()
+        assert settings.openai_base_url == "https://proxy.example.com/v1"
+
+    def test_picks_up_unprefixed_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://fallback.example.com/v1")
+        settings = Settings()
+        assert settings.openai_base_url == "https://fallback.example.com/v1"
+
+    def test_prefixed_takes_precedence(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_OPENAI_BASE_URL", "https://prefixed.example.com/v1")
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://unprefixed.example.com/v1")
+        settings = Settings()
+        assert settings.openai_base_url == "https://prefixed.example.com/v1"
 
 
 class TestGetSettings:

@@ -4,8 +4,6 @@ Turn any PDF folder into a searchable MCP server.
 
 ## Installation
 
-### From a local clone (recommended for now)
-
 Clone the repo, then install globally with `uv tool`:
 
 ```bash
@@ -18,18 +16,10 @@ This makes `pdf2mcp` available as a command anywhere on your system.
 To update after pulling new changes:
 
 ```bash
-uv tool install --reinstall ./pdf2mcp
+uv tool install --force ./pdf2mcp
 ```
 
-### From PyPI (once published)
-
-```bash
-uv tool install pdf2mcp
-# or
-pipx install pdf2mcp
-```
-
-### Without installing (run directly from source)
+To run directly from source without installing:
 
 ```bash
 cd ./pdf2mcp
@@ -100,6 +90,7 @@ pdf2mcp config --client cursor --transport streamable-http --port 9000
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OPENAI_API_KEY` | (required) | OpenAI API key for embeddings |
+| `PDF2MCP_OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI API base URL (for Azure, local proxies, or compatible providers) |
 | `PDF2MCP_DOCS_DIR` | `docs` | Directory containing PDF files |
 | `PDF2MCP_DATA_DIR` | `data` | Directory for vector database |
 | `PDF2MCP_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |

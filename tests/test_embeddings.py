@@ -16,6 +16,7 @@ def _make_settings(
     """Create a mock Settings object."""
     settings = MagicMock()
     settings.openai_api_key.get_secret_value.return_value = "sk-test"
+    settings.openai_base_url = "https://api.openai.com/v1"
     settings.embedding_batch_size = batch_size
     settings.embedding_model = model
     return settings
@@ -89,7 +90,7 @@ class TestEmbedTexts:
         settings = _make_settings()
         embed_texts(["hello"], settings)
 
-        mock_openai_cls.assert_called_once_with(api_key="sk-test")
+        mock_openai_cls.assert_called_once_with(api_key="sk-test", base_url="https://api.openai.com/v1")
 
     @patch("pdf2mcp.embeddings.OpenAI")
     def test_uses_correct_model(self, mock_openai_cls: MagicMock) -> None:

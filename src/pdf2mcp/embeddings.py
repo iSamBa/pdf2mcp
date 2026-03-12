@@ -38,7 +38,10 @@ def embed_texts(
     if not texts:
         return []
 
-    client = OpenAI(api_key=settings.openai_api_key.get_secret_value())
+    client = OpenAI(
+        api_key=settings.openai_api_key.get_secret_value(),
+        base_url=settings.openai_base_url,
+    )
     all_embeddings: list[list[float]] = []
     batch_size = settings.embedding_batch_size
     total_batches = (len(texts) + batch_size - 1) // batch_size

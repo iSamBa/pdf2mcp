@@ -14,6 +14,9 @@ _ENV_TEMPLATE = """\
 # Required: OpenAI API key for embeddings
 OPENAI_API_KEY=sk-your-api-key-here
 
+# Optional: OpenAI base URL (for Azure, local proxies, or compatible providers)
+# PDF2MCP_OPENAI_BASE_URL=https://api.openai.com/v1
+
 # Optional: Override defaults
 # PDF2MCP_DOCS_DIR=docs
 # PDF2MCP_DATA_DIR=data
