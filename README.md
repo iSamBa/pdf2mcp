@@ -104,11 +104,23 @@ pdf2mcp config --client cursor --transport streamable-http --port 9000
 
 ## MCP Tools
 
-The server exposes three tools:
+The server exposes six tools:
 
-- **`search_docs`** — Semantic search across all ingested PDFs
-- **`list_docs`** — List all ingested documents with chunk counts
-- **`get_sections`** — Get section headings for a specific document
+| Tool | Description |
+|------|-------------|
+| `search_docs(query)` | Semantic search across **all** ingested PDFs |
+| `search_in_doc(query, filename)` | Semantic search scoped to a **single** document |
+| `list_docs()` | List all ingested documents with chunk counts |
+| `get_sections(filename)` | Get section headings for a specific document |
+| `read_page(filename, page)` | Read the full content of a specific page |
+| `read_section(filename, section_title)` | Read the full content of a named section |
+
+### Typical workflow
+
+1. **`list_docs`** — discover available documents
+2. **`get_sections`** — browse a document's structure
+3. **`read_section`** or **`read_page`** — read specific content
+4. **`search_docs`** or **`search_in_doc`** — find information by query
 
 ## Development
 
