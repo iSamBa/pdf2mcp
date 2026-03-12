@@ -5,11 +5,19 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow.compute as pc
 from pydantic import BaseModel
 
 from pdf2mcp.config import ServerSettings
-from pdf2mcp.embeddings import embed_texts
-from pdf2mcp.store import DOCUMENTS_TABLE, METADATA_TABLE, _escape_filter_value, get_db
+from pdf2mcp.embeddings import embed_query, embed_texts
+from pdf2mcp.store import (
+    DOCUMENTS_TABLE,
+    METADATA_TABLE,
+    _escape_filter_value,
+    get_db,
+    get_documents_table,
+)
 
 __all__ = [
     "SearchResult",
@@ -35,6 +43,11 @@ class SearchResult(BaseModel):
     source_file: str
     page_numbers: list[int]
     section_title: str
+
+
+def _distance_to_similarity(distance: float) -> float:
+    """Convert L2 distance to a 0-1 similarity score (higher = more relevant)."""
+    return 1.0 / (1.0 + distance)
 
 
 def search_documents(
@@ -63,23 +76,15 @@ def search_documents(
     if num_results is None:
         num_results = settings.default_num_results
 
-    # Embed the query (reuses retry logic from embeddings module)
-    try:
-        vectors = embed_texts([query.strip()], settings)
-    except Exception:
-        logger.warning("Failed to embed search query", exc_info=True)
-        return []
-    query_vector = vectors[0]
-
-    # Search LanceDB
-    db = get_db(settings)
-    if DOCUMENTS_TABLE not in db.list_tables().tables:
-        logger.warning("No documents table found. Run ingestion first.")
+    # Embed the query with caching
+    query_vector = embed_query(query.strip(), settings)
+    if query_vector is None:
         return []
 
-    table = db.open_table(DOCUMENTS_TABLE)
-    if table.count_rows() == 0:
-        logger.warning("Documents table is empty. Run ingestion first.")
+    # Search LanceDB using cached table handle
+    table = get_documents_table(settings)
+    if table is None:
+        logger.warning("No documents table found or table is empty. Run ingestion first.")
         return []
 
     rows: list[dict[str, Any]] = table.search(query_vector).limit(num_results).to_list()
@@ -87,7 +92,7 @@ def search_documents(
     return [
         SearchResult(
             text=row["text"],
-            score=row.get("_distance", 0.0),
+            score=_distance_to_similarity(row.get("_distance", 0.0)),
             source_file=row["source_file"],
             page_numbers=row.get("page_numbers", []),
             section_title=row.get("section_title", ""),
@@ -209,21 +214,15 @@ def search_in_document(
     if num_results is None:
         num_results = settings.default_num_results
 
-    try:
-        vectors = embed_texts([query.strip()], settings)
-    except Exception:
-        logger.warning("Failed to embed search query", exc_info=True)
-        return []
-    query_vector = vectors[0]
-
-    db = get_db(settings)
-    if DOCUMENTS_TABLE not in db.list_tables().tables:
-        logger.warning("No documents table found. Run ingestion first.")
+    # Embed the query with caching
+    query_vector = embed_query(query.strip(), settings)
+    if query_vector is None:
         return []
 
-    table = db.open_table(DOCUMENTS_TABLE)
-    if table.count_rows() == 0:
-        logger.warning("Documents table is empty. Run ingestion first.")
+    # Use cached table handle
+    table = get_documents_table(settings)
+    if table is None:
+        logger.warning("No documents table found or table is empty. Run ingestion first.")
         return []
 
     escaped = _escape_filter_value(filename)
@@ -237,7 +236,7 @@ def search_in_document(
     return [
         SearchResult(
             text=row["text"],
-            score=row.get("_distance", 0.0),
+            score=_distance_to_similarity(row.get("_distance", 0.0)),
             source_file=row["source_file"],
             page_numbers=row.get("page_numbers", []),
             section_title=row.get("section_title", ""),
@@ -254,7 +253,8 @@ def get_page_chunks(
     """Return all chunks whose page_numbers contain the given page.
 
     Results are ordered by chunk_index. This is a pure metadata query
-    (no embeddings needed).
+    (no embeddings needed). Uses Arrow compute to filter server-side
+    instead of converting the full table to Python.
 
     Args:
         filename: The PDF filename.
@@ -281,23 +281,27 @@ def get_page_chunks(
     if arrow_table.num_rows == 0:
         return []
 
-    rows = arrow_table.to_pydict()
-    results = []
-    for i in range(arrow_table.num_rows):
-        page_numbers = rows["page_numbers"][i]
-        if page in page_numbers:
-            results.append(
-                {
-                    "text": rows["text"][i],
-                    "source_file": rows["source_file"][i],
-                    "page_numbers": page_numbers,
-                    "section_title": rows["section_title"][i],
-                    "chunk_index": rows["chunk_index"][i],
-                }
-            )
+    # Filter using Arrow: build a boolean mask without converting entire table to Python
+    page_col = arrow_table.column("page_numbers")
+    row_mask = pa.array(
+        [page in page_col[i].as_py() for i in range(arrow_table.num_rows)],
+        type=pa.bool_(),
+    )
+    filtered = arrow_table.filter(row_mask)
 
-    results.sort(key=lambda r: r["chunk_index"])
-    return results
+    if filtered.num_rows == 0:
+        return []
+
+    # Sort by chunk_index using Arrow compute
+    sort_indices = pc.sort_indices(filtered, sort_keys=[("chunk_index", "ascending")])
+    filtered = filtered.take(sort_indices)
+
+    # Convert columnar dict to list of row dicts
+    col_dict = filtered.to_pydict()
+    return [
+        {col: col_dict[col][i] for col in col_dict}
+        for i in range(filtered.num_rows)
+    ]
 
 
 def get_section_chunks(

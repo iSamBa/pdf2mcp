@@ -21,7 +21,7 @@ from pdf2mcp.search import (
     search_documents,
     search_in_document,
 )
-from pdf2mcp.store import get_db, record_ingestion, upsert_chunks
+from pdf2mcp.store import get_db, invalidate_table_cache, record_ingestion, upsert_chunks
 
 # ── Fixtures ────────────────────────────────────────────────────────
 
@@ -44,6 +44,7 @@ def db(settings: MagicMock):  # type: ignore[no-untyped-def]
     """Create a fresh LanceDB connection."""
     connection = get_db(settings)
     yield connection
+    invalidate_table_cache()
     db_path = settings.data_dir / "lancedb"
     if db_path.exists():
         shutil.rmtree(db_path)
@@ -118,14 +119,14 @@ class TestSearchDocuments:
     def test_whitespace_query_returns_empty(self, settings: MagicMock) -> None:
         assert search_documents("   ", settings) == []
 
-    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
     def test_empty_database_returns_empty(
         self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
         results = search_documents("test query", settings)
         assert results == []
 
-    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
     def test_returns_results_with_correct_structure(
         self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
@@ -139,10 +140,12 @@ class TestSearchDocuments:
             assert result.source_file == "manual.pdf"
             assert isinstance(result.text, str)
             assert isinstance(result.score, float)
+            # Score should be 0-1 similarity (higher = better)
+            assert 0.0 <= result.score <= 1.0
             assert isinstance(result.page_numbers, list)
             assert isinstance(result.section_title, str)
 
-    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
     def test_respects_num_results(
         self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
@@ -151,7 +154,7 @@ class TestSearchDocuments:
         results = search_documents("query", settings, num_results=2)
         assert len(results) == 2
 
-    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
     def test_uses_default_num_results(
         self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
@@ -161,22 +164,22 @@ class TestSearchDocuments:
         results = search_documents("query", settings)
         assert len(results) == 3
 
-    @patch("pdf2mcp.search.embed_texts")
+    @patch("pdf2mcp.search.embed_query")
     def test_strips_query_whitespace(
         self, mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
-        mock_embed.return_value = [[0.1] * 8]
+        mock_embed.return_value = [0.1] * 8
         _populate_db(db, count=1)
 
         search_documents("  hello world  ", settings)
-        mock_embed.assert_called_once_with(["hello world"], settings)
+        mock_embed.assert_called_once_with("hello world", settings)
 
-    @patch("pdf2mcp.search.embed_texts")
+    @patch("pdf2mcp.search.embed_query")
     def test_returns_empty_on_embedding_failure(
         self, mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
         _populate_db(db, count=1)
-        mock_embed.side_effect = RuntimeError("API error")
+        mock_embed.return_value = None
 
         results = search_documents("query", settings)
         assert results == []
@@ -390,7 +393,7 @@ class TestSearchInDocument:
     def test_whitespace_query_returns_empty(self, settings: MagicMock) -> None:
         assert search_in_document("   ", "test.pdf", settings) == []
 
-    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
     def test_returns_only_matching_document(
         self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
@@ -403,7 +406,7 @@ class TestSearchInDocument:
         for result in results:
             assert result.source_file == "manual.pdf"
 
-    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
     def test_unknown_file_returns_empty(
         self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
@@ -412,24 +415,24 @@ class TestSearchInDocument:
         results = search_in_document("test query", "unknown.pdf", settings)
         assert results == []
 
-    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
     def test_empty_database_returns_empty(
         self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
         results = search_in_document("test query", "test.pdf", settings)
         assert results == []
 
-    @patch("pdf2mcp.search.embed_texts")
+    @patch("pdf2mcp.search.embed_query")
     def test_returns_empty_on_embedding_failure(
         self, mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:
         _populate_db(db, count=1)
-        mock_embed.side_effect = RuntimeError("API error")
+        mock_embed.return_value = None
 
         results = search_in_document("query", "test.pdf", settings)
         assert results == []
 
-    @patch("pdf2mcp.search.embed_texts", return_value=[[0.1] * 8])
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
     def test_respects_num_results(
         self, _mock_embed: MagicMock, settings: MagicMock, db: MagicMock
     ) -> None:

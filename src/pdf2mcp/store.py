@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import Any
 
 import lancedb  # type: ignore[import-untyped]
@@ -13,17 +14,22 @@ from pdf2mcp.models import DocumentChunk
 
 __all__ = [
     "get_db",
+    "get_documents_table",
     "upsert_chunks",
     "delete_by_source",
     "get_ingested_files",
     "record_ingestion",
     "clear_database",
+    "create_vector_index",
 ]
 
 logger = logging.getLogger(__name__)
 
 DOCUMENTS_TABLE = "documents"
 METADATA_TABLE = "ingestion_metadata"
+
+# Minimum rows needed for IVF_PQ index to be worthwhile
+_MIN_ROWS_FOR_INDEX = 256
 
 
 def _escape_filter_value(value: str) -> str:
@@ -39,12 +45,48 @@ def _table_exists(db: lancedb.DBConnection, name: str) -> bool:
     return name in db.list_tables().tables
 
 
+@lru_cache(maxsize=8)
+def _cached_connect(db_path_str: str) -> lancedb.DBConnection:
+    """Return a cached DB connection for the given path."""
+    return lancedb.connect(db_path_str)
+
+
 def get_db(settings: ServerSettings) -> lancedb.DBConnection:
     """Open or create a LanceDB database in the configured data directory."""
     db_path = settings.data_dir / "lancedb"
     db_path.mkdir(parents=True, exist_ok=True)
-    db: lancedb.DBConnection = lancedb.connect(str(db_path))
-    return db
+    return _cached_connect(str(db_path))
+
+
+# Cache for opened table handles: (db_path, table_name) -> Table
+_table_cache: dict[tuple[str, str], lancedb.table.Table] = {}
+
+
+def get_documents_table(settings: ServerSettings) -> lancedb.table.Table | None:
+    """Return the opened documents table, or None if it doesn't exist or is empty.
+
+    Caches the table handle so repeated calls skip list_tables/open_table.
+    """
+    db = get_db(settings)
+    cache_key = (str(settings.data_dir / "lancedb"), DOCUMENTS_TABLE)
+
+    if cache_key in _table_cache:
+        return _table_cache[cache_key]
+
+    if not _table_exists(db, DOCUMENTS_TABLE):
+        return None
+
+    table = db.open_table(DOCUMENTS_TABLE)
+    if table.count_rows() == 0:
+        return None
+
+    _table_cache[cache_key] = table
+    return table
+
+
+def invalidate_table_cache() -> None:
+    """Clear the table cache (call after ingestion or clear_database)."""
+    _table_cache.clear()
 
 
 def _get_documents_schema(dimensions: int) -> pa.Schema:
@@ -127,6 +169,7 @@ def upsert_chunks(
         )
 
     table.add(records)
+    invalidate_table_cache()
     logger.info("Stored %d chunks in documents table", len(records))
 
 
@@ -186,4 +229,32 @@ def clear_database(db: lancedb.DBConnection) -> None:
     for name in [DOCUMENTS_TABLE, METADATA_TABLE]:
         if _table_exists(db, name):
             db.drop_table(name)
+    invalidate_table_cache()
     logger.info("Database cleared")
+
+
+def create_vector_index(db: lancedb.DBConnection) -> None:
+    """Create an IVF_PQ vector index on the documents table if it has enough rows.
+
+    This speeds up vector search from brute-force kNN to approximate NN.
+    Requires at least ``_MIN_ROWS_FOR_INDEX`` rows to be effective.
+    """
+    if not _table_exists(db, DOCUMENTS_TABLE):
+        return
+
+    table = db.open_table(DOCUMENTS_TABLE)
+    row_count = table.count_rows()
+
+    if row_count < _MIN_ROWS_FOR_INDEX:
+        logger.info(
+            "Skipping vector index creation: %d rows < %d minimum",
+            row_count,
+            _MIN_ROWS_FOR_INDEX,
+        )
+        return
+
+    try:
+        table.create_index(metric="l2", index_type="IVF_PQ", replace=True)
+        logger.info("Created vector index (IVF_PQ) on %d rows", row_count)
+    except Exception:
+        logger.warning("Failed to create vector index", exc_info=True)

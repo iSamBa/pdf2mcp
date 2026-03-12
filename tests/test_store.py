@@ -14,6 +14,7 @@ from pdf2mcp.store import (
     delete_by_source,
     get_db,
     get_ingested_files,
+    invalidate_table_cache,
     record_ingestion,
     upsert_chunks,
 )
@@ -33,6 +34,7 @@ def db(settings: MagicMock):  # type: ignore[no-untyped-def]
     """Create a fresh LanceDB connection."""
     connection = get_db(settings)
     yield connection
+    invalidate_table_cache()
     # Cleanup
     db_path = settings.data_dir / "lancedb"
     if db_path.exists():

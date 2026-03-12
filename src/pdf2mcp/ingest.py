@@ -10,6 +10,7 @@ from pdf2mcp.embeddings import embed_texts
 from pdf2mcp.parser import discover_pdfs, parse_pdf
 from pdf2mcp.store import (
     clear_database,
+    create_vector_index,
     delete_by_source,
     get_db,
     get_ingested_files,
@@ -118,6 +119,10 @@ def run_ingestion(
 
         ingested_count += 1
         logger.info("Ingested %s: %d chunks", filename, len(chunks))
+
+    # Create vector index for faster ANN search if enough rows exist
+    if ingested_count > 0:
+        create_vector_index(db)
 
     logger.info(
         "Ingestion complete: %d ingested, %d skipped",

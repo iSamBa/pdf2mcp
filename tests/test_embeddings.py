@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pdf2mcp.embeddings import embed_texts
+from pdf2mcp.embeddings import _client_cache, embed_texts
 
 
 def _make_settings(
@@ -36,6 +36,12 @@ def _mock_openai_response(embeddings: list[list[float]]) -> MagicMock:
         items.append(item)
     response.data = items
     return response
+
+
+@pytest.fixture(autouse=True)
+def _clear_client_cache() -> None:
+    """Clear the OpenAI client cache between tests."""
+    _client_cache.clear()
 
 
 class TestEmbedTexts:
