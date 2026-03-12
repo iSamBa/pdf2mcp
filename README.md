@@ -1,5 +1,14 @@
 # pdf2mcp
 
+```
+██████╗ ██████╗ ███████╗██████╗ ███╗   ███╗ ██████╗██████╗
+██╔══██╗██╔══██╗██╔════╝╚════██╗████╗ ████║██╔════╝██╔══██╗
+██████╔╝██║  ██║█████╗   █████╔╝██╔████╔██║██║     ██████╔╝
+██╔═══╝ ██║  ██║██╔══╝  ██╔═══╝ ██║╚██╔╝██║██║     ██╔═══╝
+██║     ██████╔╝██║     ███████╗██║ ╚═╝ ██║╚██████╗██║
+╚═╝     ╚═════╝ ╚═╝     ╚══════╝╚═╝     ╚═╝ ╚═════╝╚═╝
+```
+
 Turn any PDF folder into a searchable MCP server.
 
 ## Installation
@@ -44,9 +53,21 @@ cd my-project
 # 3. Ingest
 pdf2mcp ingest
 
-# 4. Get config snippets for your MCP client
+# 4. Start the server
+pdf2mcp serve
+
+# 5. Get config snippets for your MCP client
 pdf2mcp config
 ```
+
+## Architecture
+
+pdf2mcp separates **server** and **client** concerns:
+
+- **Server** (`pdf2mcp serve`) — runs independently, handles PDF ingestion, embedding, and search. Configured via `PDF2MCP_*` environment variables.
+- **Client** (Claude Code, Cursor, VS Code, etc.) — connects to a running server over HTTP. Only needs the server URL.
+
+The default transport is `streamable-http`. The server listens on `http://127.0.0.1:8000/mcp` and shuts down gracefully on SIGINT/SIGTERM.
 
 ## Commands
 
@@ -54,7 +75,7 @@ pdf2mcp config
 |---------|-------------|
 | `pdf2mcp init [dir]` | Scaffold a working directory with `docs/` and `.env` |
 | `pdf2mcp ingest` | Parse PDFs, chunk, embed, and store in vector DB |
-| `pdf2mcp serve` | Start the MCP server (stdio or HTTP) |
+| `pdf2mcp serve` | Start the MCP server (HTTP by default) |
 | `pdf2mcp config` | Print ready-to-paste config for MCP clients |
 
 ### Common Flags
@@ -64,28 +85,60 @@ pdf2mcp config
 pdf2mcp ingest --docs-dir ./my-pdfs
 pdf2mcp serve --docs-dir ./my-pdfs
 
-# HTTP transport
-pdf2mcp serve --transport streamable-http --port 9000
+# Use stdio transport (for clients that spawn the server)
+pdf2mcp serve --transport stdio
+
+# Custom host/port
+pdf2mcp serve --host 0.0.0.0 --port 9000
 
 # Custom server name
 pdf2mcp serve --name my-docs
 
 # Config for a specific client
-pdf2mcp config --client cursor --transport streamable-http --port 9000
+pdf2mcp config --client cursor
+pdf2mcp config --client claude-desktop --transport stdio
 ```
 
 ## Client Configuration
 
-`pdf2mcp config` generates ready-to-paste JSON for all supported clients:
+`pdf2mcp config` generates ready-to-paste JSON for all supported clients. The default is HTTP — clients just need the server URL:
+
+```json
+{
+  "mcpServers": {
+    "pdf-docs": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
 
 | Client | Config File | Top-level Key | HTTP Support |
 |--------|------------|--------------|--------------|
 | Claude Code | `.mcp.json` | `mcpServers` | Yes |
-| Claude Desktop | `claude_desktop_config.json` | `mcpServers` | No (stdio) |
+| Claude Desktop | `claude_desktop_config.json` | `mcpServers` | No (stdio only) |
 | Cursor | `.cursor/mcp.json` | `mcpServers` | Yes |
 | VS Code / Copilot | `.vscode/mcp.json` | `servers` | Yes |
 
+Use `--transport stdio` for clients that need to spawn the server process (e.g., Claude Desktop):
+
+```json
+{
+  "mcpServers": {
+    "pdf-docs": {
+      "command": "uv",
+      "args": ["run", "pdf2mcp", "serve"]
+    }
+  }
+}
+```
+
 ## Environment Variables
+
+### Server settings (`PDF2MCP_*`)
+
+These configure the server process. MCP clients never need these.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -98,9 +151,19 @@ pdf2mcp config --client cursor --transport streamable-http --port 9000
 | `PDF2MCP_CHUNK_OVERLAP` | `50` | Overlap between chunks in tokens |
 | `PDF2MCP_DEFAULT_NUM_RESULTS` | `5` | Default search results count |
 | `PDF2MCP_SERVER_NAME` | `pdf-docs` | MCP server name |
-| `PDF2MCP_SERVER_TRANSPORT` | `stdio` | Transport protocol |
-| `PDF2MCP_SERVER_HOST` | `127.0.0.1` | Host for HTTP transport |
-| `PDF2MCP_SERVER_PORT` | `8000` | Port for HTTP transport |
+| `PDF2MCP_SERVER_TRANSPORT` | `streamable-http` | Transport protocol |
+| `PDF2MCP_SERVER_HOST` | `127.0.0.1` | Host to bind to |
+| `PDF2MCP_SERVER_PORT` | `8000` | Port to bind to |
+
+### Client settings (`PDF2MCP_CLIENT_*`)
+
+These configure how a client connects to the server. No secrets needed.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PDF2MCP_CLIENT_SERVER_NAME` | `pdf-docs` | Server name in client config |
+| `PDF2MCP_CLIENT_SERVER_URL` | `http://127.0.0.1:8000/mcp` | Server URL |
+| `PDF2MCP_CLIENT_TRANSPORT` | `streamable-http` | Transport protocol |
 
 ## MCP Tools
 
