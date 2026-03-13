@@ -1,12 +1,17 @@
 """Configuration management using Pydantic Settings.
 
-Server and client concerns are separated:
+``ServerSettings`` holds everything the server needs to run: API keys,
+storage paths, embedding/chunking parameters, and the network address the
+server binds to.
 
-- ``ServerSettings`` holds everything the server needs to run (API keys,
-  paths, embedding/chunking parameters, bind address).
-- ``ClientSettings`` holds only what an MCP client needs to connect to a
-  running server (URL and server name).
+Internal embedding constants are defined at module level and are not
+user-configurable:
+
+- ``EMBEDDING_DIMENSIONS`` — vector dimensions produced by the embedding model.
+- ``EMBEDDING_BATCH_SIZE`` — maximum number of texts sent per API request.
 """
+
+from __future__ import annotations
 
 import os
 from functools import lru_cache
@@ -16,7 +21,19 @@ from dotenv import load_dotenv
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-__all__ = ["ClientSettings", "ServerSettings", "get_settings"]
+__all__ = [
+    "EMBEDDING_BATCH_SIZE",
+    "EMBEDDING_DIMENSIONS",
+    "ServerSettings",
+    "get_settings",
+]
+
+# ---------------------------------------------------------------------------
+# Internal constants — not exposed as environment-variable settings
+# ---------------------------------------------------------------------------
+
+EMBEDDING_DIMENSIONS: int = 1536
+EMBEDDING_BATCH_SIZE: int = 2048
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +53,7 @@ class ServerSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         env_prefix="PDF2MCP_",
+        extra="ignore",
     )
 
     # Required — also accepts OPENAI_API_KEY (without prefix)
@@ -50,8 +68,6 @@ class ServerSettings(BaseSettings):
 
     # Embedding
     embedding_model: str = "text-embedding-3-small"
-    embedding_dimensions: int = 1536
-    embedding_batch_size: int = 2048
 
     # Chunking
     chunk_size: int = 500
@@ -81,7 +97,7 @@ class ServerSettings(BaseSettings):
     # Search
     default_num_results: int = 5
 
-    # Bind address (server-side only — clients use ClientSettings)
+    # Bind address
     server_name: str = "pdf-docs"
     server_transport: str = "streamable-http"
     server_host: str = "127.0.0.1"
@@ -115,44 +131,11 @@ class ServerSettings(BaseSettings):
 
 
 # ---------------------------------------------------------------------------
-# Client settings — what an MCP client needs to connect
-# ---------------------------------------------------------------------------
-
-
-class ClientSettings(BaseSettings):
-    """Client-side connection settings.
-
-    These describe how an MCP client (Claude Desktop, Cursor, VS Code, …)
-    should reach a *running* pdf2mcp server.  They carry no secrets and no
-    server internals.
-    """
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        env_prefix="PDF2MCP_CLIENT_",
-        extra="ignore",
-    )
-
-    server_name: str = "pdf-docs"
-    server_url: str = "http://127.0.0.1:8000/mcp"
-    transport: str = "streamable-http"
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-# Backward-compatible alias
-Settings = ServerSettings
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> ServerSettings:
     """Load and return server settings (cached singleton)."""
     return ServerSettings()
-
-
-def get_client_settings() -> ClientSettings:
-    """Load and return client connection settings."""
-    return ClientSettings()

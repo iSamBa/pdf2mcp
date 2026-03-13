@@ -7,6 +7,7 @@ via the Model Context Protocol (MCP).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import signal
 import sys
@@ -212,7 +213,7 @@ def get_status() -> str:
             f"Embedding model: {settings.embedding_model}\n"
             f"Docs directory: {settings.docs_dir}"
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "Server running, but no documents ingested yet."
 
 
@@ -275,10 +276,8 @@ async def _run_stdio() -> None:
 
     for p in pending:
         p.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await p
-        except asyncio.CancelledError:
-            pass
 
     _cleanup()
     logger.info("Server stopped")

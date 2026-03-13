@@ -10,14 +10,12 @@ from pdf2mcp.embeddings import _client_cache, embed_texts
 
 
 def _make_settings(
-    batch_size: int = 2048,
     model: str = "text-embedding-3-small",
 ) -> MagicMock:
     """Create a mock Settings object."""
     settings = MagicMock()
     settings.openai_api_key.get_secret_value.return_value = "sk-test"
     settings.openai_base_url = "https://api.openai.com/v1"
-    settings.embedding_batch_size = batch_size
     settings.embedding_model = model
     return settings
 
@@ -55,12 +53,13 @@ class TestEmbedTexts:
             [_make_embedding() for _ in range(3)]
         )
 
-        settings = _make_settings(batch_size=10)
+        settings = _make_settings()
         result = embed_texts(["a", "b", "c"], settings)
 
         assert len(result) == 3
         mock_client.embeddings.create.assert_called_once()
 
+    @patch("pdf2mcp.embeddings.EMBEDDING_BATCH_SIZE", 2)
     @patch("pdf2mcp.embeddings.OpenAI")
     def test_batches_correctly(self, mock_openai_cls: MagicMock) -> None:
         mock_client = MagicMock()
@@ -71,7 +70,7 @@ class TestEmbedTexts:
             return _mock_openai_response([_make_embedding() for _ in range(len(input))])
 
         mock_client.embeddings.create.side_effect = side_effect
-        settings = _make_settings(batch_size=2)
+        settings = _make_settings()
 
         result = embed_texts(["a", "b", "c", "d", "e"], settings)
 

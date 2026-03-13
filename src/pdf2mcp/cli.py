@@ -7,8 +7,12 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pdf2mcp import __version__
+
+if TYPE_CHECKING:
+    from pdf2mcp.config import ServerSettings
 
 _ENV_TEMPLATE = """\
 # ── Server settings (used by the pdf2mcp server process) ──────────────
@@ -34,12 +38,6 @@ OPENAI_API_KEY=sk-your-api-key-here
 # PDF2MCP_OCR_ENABLED=true
 # PDF2MCP_OCR_LANGUAGE=eng
 # PDF2MCP_OCR_DPI=300
-
-# ── Client settings (used by MCP clients to connect) ─────────────────
-
-# PDF2MCP_CLIENT_SERVER_NAME=pdf-docs
-# PDF2MCP_CLIENT_SERVER_URL=http://127.0.0.1:8000/mcp
-# PDF2MCP_CLIENT_TRANSPORT=streamable-http
 """
 
 
@@ -53,21 +51,27 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-def cmd_ingest(args: argparse.Namespace) -> None:
-    """Run the ingestion pipeline."""
-    setup_logging(args.verbose)
+def _load_settings() -> ServerSettings:
+    """Load settings or exit with an error message."""
     logger = logging.getLogger("pdf2mcp")
-
     try:
         from pdf2mcp.config import get_settings
 
-        settings = get_settings()
-    except Exception as exc:
+        return get_settings()
+    except Exception as exc:  # noqa: BLE001
         logger.error("Configuration error: %s", exc)
         logger.error(
             "Make sure OPENAI_API_KEY is set (in .env or environment variable)"
         )
         sys.exit(1)
+
+
+def cmd_ingest(args: argparse.Namespace) -> None:
+    """Run the ingestion pipeline."""
+    setup_logging(args.verbose)
+    logger = logging.getLogger("pdf2mcp")
+
+    settings = _load_settings()
 
     # Override docs_dir if --docs-dir was provided
     if args.docs_dir is not None:
@@ -87,7 +91,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     try:
         run_ingestion(settings, force=args.force, show_progress=True)
         logger.info("Ingestion completed successfully")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.error("Ingestion failed: %s", exc)
         sys.exit(1)
 
@@ -97,13 +101,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
     setup_logging(args.verbose)
     logger = logging.getLogger("pdf2mcp")
 
-    try:
-        from pdf2mcp.config import get_settings
-
-        settings = get_settings()
-    except Exception as exc:
-        logger.error("Configuration error: %s", exc)
-        sys.exit(1)
+    settings = _load_settings()
 
     # Override docs_dir if --docs-dir was provided
     if args.docs_dir is not None:
@@ -128,13 +126,19 @@ def cmd_config(args: argparse.Namespace) -> None:
     server and client are separate processes.  Use ``--transport stdio``
     for the legacy all-in-one mode where the client spawns the server.
     """
-    from pdf2mcp.config import ClientSettings
+    logger = logging.getLogger("pdf2mcp")
 
-    # Start from ClientSettings defaults, then apply CLI overrides
-    cs = ClientSettings()
-    name = args.name or cs.server_name
-    transport = args.transport or cs.transport
-    url = args.url or cs.server_url
+    try:
+        from pdf2mcp.config import get_settings
+
+        settings = get_settings()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Configuration error: %s", exc)
+        sys.exit(1)
+
+    name = args.name or settings.server_name
+    transport = args.transport or settings.server_transport
+    url = args.url or f"http://{settings.server_host}:{settings.server_port}/mcp"
 
     clients = (
         [args.client]
@@ -166,10 +170,7 @@ def _build_config_snippet(
     """Build a config snippet for a specific client."""
     is_http = transport != "stdio"
 
-    if client == "vscode":
-        top_key = "servers"
-    else:
-        top_key = "mcpServers"
+    top_key = "servers" if client == "vscode" else "mcpServers"
 
     if is_http:
         server_config: dict[str, object] = {

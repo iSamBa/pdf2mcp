@@ -7,7 +7,8 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from pdf2mcp.config import Settings, get_settings
+from pdf2mcp.config import EMBEDDING_DIMENSIONS, get_settings
+from pdf2mcp.config import ServerSettings as Settings
 
 
 @pytest.fixture(autouse=True)
@@ -52,9 +53,7 @@ class TestSettingsDefaults:
     def test_default_embedding_dimensions(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
-        settings = Settings()
-        assert settings.embedding_dimensions == 1536
+        assert EMBEDDING_DIMENSIONS == 1536
 
     def test_default_chunk_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")

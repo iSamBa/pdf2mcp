@@ -58,41 +58,56 @@ class TestDiscoverPdfs:
 class TestPageHasText:
     """Test the _page_has_text detection function."""
 
-    def test_page_with_sufficient_text(self) -> None:
+    @staticmethod
+    def _make_text_page(text: str) -> MagicMock:
+        """Create a mock page with text but no images (pure text page)."""
         page = MagicMock()
-        page.get_text.return_value = "This is a page with enough text content."
+        page.get_text.return_value = text
+        page.get_images.return_value = []
+        page.rect.width = 612
+        page.rect.height = 792
+        return page
+
+    def test_page_with_sufficient_text(self) -> None:
+        page = self._make_text_page("This is a page with enough text content.")
         assert _page_has_text(page) is True
 
     def test_page_with_empty_text(self) -> None:
-        page = MagicMock()
-        page.get_text.return_value = ""
+        page = self._make_text_page("")
         assert _page_has_text(page) is False
 
     def test_page_with_only_whitespace(self) -> None:
-        page = MagicMock()
-        page.get_text.return_value = "   \n\t  \n  "
+        page = self._make_text_page("   \n\t  \n  ")
         assert _page_has_text(page) is False
 
     def test_page_with_short_text_below_threshold(self) -> None:
-        page = MagicMock()
-        page.get_text.return_value = "abc"  # 3 chars < 10
+        page = self._make_text_page("abc")  # 3 chars < 10
         assert _page_has_text(page) is False
 
     def test_page_with_text_at_threshold(self) -> None:
-        page = MagicMock()
-        page.get_text.return_value = "0123456789"  # exactly 10 chars
+        page = self._make_text_page("0123456789")  # exactly 10 chars
         assert _page_has_text(page) is True
 
     def test_page_with_text_just_below_threshold(self) -> None:
-        page = MagicMock()
-        page.get_text.return_value = "012345678"  # 9 chars
+        page = self._make_text_page("012345678")  # 9 chars
         assert _page_has_text(page) is False
 
     def test_custom_min_length(self) -> None:
-        page = MagicMock()
-        page.get_text.return_value = "abc"
+        page = self._make_text_page("abc")
         assert _page_has_text(page, min_length=3) is True
         assert _page_has_text(page, min_length=4) is False
+
+    def test_image_dominant_page_with_text_returns_false(self) -> None:
+        """A scanned page with overlay text should not be treated as a text page."""
+        page = MagicMock()
+        page.get_text.return_value = "SAMPLE LETTER"  # 13 chars >= 10
+        page.get_images.return_value = [(1,)]  # one image
+        rect = MagicMock()
+        rect.width = 612
+        rect.height = 792
+        page.rect = rect
+        page.get_image_rects.return_value = [rect]  # image covers full page
+        assert _page_has_text(page) is False
 
 
 class TestCheckTesseract:
@@ -179,10 +194,20 @@ class TestOcrPage:
         assert "OCR failed for page" in caplog.text
 
 
-def _make_mock_page(text: str) -> MagicMock:
+def _make_mock_page(text: str, *, image_dominant: bool = False) -> MagicMock:
     """Create a mock pymupdf page with given text."""
     page = MagicMock()
     page.get_text.return_value = text
+    page.rect.width = 612
+    page.rect.height = 792
+    if image_dominant:
+        page.get_images.return_value = [(1,)]
+        full_rect = MagicMock()
+        full_rect.width = 612
+        full_rect.height = 792
+        page.get_image_rects.return_value = [full_rect]
+    else:
+        page.get_images.return_value = []
     return page
 
 

@@ -39,7 +39,6 @@ def settings(tmp_path: Path) -> MagicMock:
     s.data_dir.mkdir()
     s.openai_api_key.get_secret_value.return_value = "sk-test"
     s.embedding_model = "text-embedding-3-small"
-    s.embedding_dimensions = 8
     s.default_num_results = 5
     return s
 

@@ -5,8 +5,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import lancedb  # type: ignore[import-untyped]
+
 from pdf2mcp.chunker import chunk_markdown
-from pdf2mcp.config import ServerSettings, get_settings
+from pdf2mcp.config import (
+    EMBEDDING_BATCH_SIZE,
+    EMBEDDING_DIMENSIONS,
+    ServerSettings,
+    get_settings,
+)
 from pdf2mcp.embeddings import compute_batch_count, embed_texts
 from pdf2mcp.parser import discover_pdfs, parse_pdf
 from pdf2mcp.progress import IngestionProgress
@@ -80,7 +87,7 @@ def run_ingestion(
 
 def _ingest_pdfs(
     pdfs: list[Path],
-    db: object,
+    db: lancedb.DBConnection,
     settings: ServerSettings,
     ingested: dict[str, str],
     force: bool,
@@ -126,7 +133,7 @@ def _ingest_pdfs(
                 on_ocr_start=_on_ocr_start if progress is not None else None,
                 on_ocr_page=_on_ocr_page if progress is not None else None,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning("Failed to parse %s, skipping", filename, exc_info=True)
             if progress is not None:
                 progress.stage_complete()
@@ -172,7 +179,7 @@ def _ingest_pdfs(
 
         # Embed — update progress total now that we know the batch count
         texts = [chunk.text for chunk in chunks]
-        num_batches = compute_batch_count(len(texts), settings.embedding_batch_size)
+        num_batches = compute_batch_count(len(texts), EMBEDDING_BATCH_SIZE)
 
         if progress is not None:
             progress.set_embedding_batches(num_batches)
@@ -186,7 +193,7 @@ def _ingest_pdfs(
                 if progress is not None
                 else None,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning(
                 "Embedding failed for %s, skipping",
                 filename,
@@ -200,9 +207,9 @@ def _ingest_pdfs(
         if progress is not None:
             progress.stage_start("storing")
         try:
-            upsert_chunks(db, chunks, embeddings, settings.embedding_dimensions)
+            upsert_chunks(db, chunks, embeddings, EMBEDDING_DIMENSIONS)
             record_ingestion(db, filename, parsed.file_hash, len(chunks))
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning(
                 "Storing failed for %s, skipping",
                 filename,

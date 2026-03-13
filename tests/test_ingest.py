@@ -5,9 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from pdf2mcp.ingest import run_ingestion
 from pdf2mcp.models import ParsedDocument
 from pdf2mcp.store import get_db, get_ingested_files
+
+
+# Tests use 8-dim mock embeddings; patch the module-level constant so the
+# LanceDB schema matches the test data.
+@pytest.fixture(autouse=True)
+def _patch_embedding_dimensions():
+    with patch("pdf2mcp.ingest.EMBEDDING_DIMENSIONS", 8):
+        yield
 
 
 def _make_settings(tmp_path: Path) -> MagicMock:
@@ -18,9 +28,7 @@ def _make_settings(tmp_path: Path) -> MagicMock:
     s.data_dir = tmp_path / "data"
     s.data_dir.mkdir()
     s.openai_api_key.get_secret_value.return_value = "sk-test"
-    s.embedding_batch_size = 2048
     s.embedding_model = "text-embedding-3-small"
-    s.embedding_dimensions = 8
     s.chunk_size = 500
     s.chunk_overlap = 50
     return s

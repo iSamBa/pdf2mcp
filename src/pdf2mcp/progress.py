@@ -108,9 +108,10 @@ class IngestionProgress:
         root.addHandler(rich_handler)
 
         self._progress.__enter__()
-        self._overall_task = self._progress.add_task(
-            "Ingesting documents", total=self._total_docs, stage=""
-        )
+        if self._total_docs > 1:
+            self._overall_task = self._progress.add_task(
+                "Ingesting documents", total=self._total_docs, stage=""
+            )
         return self
 
     def __exit__(self, *args: object) -> None:

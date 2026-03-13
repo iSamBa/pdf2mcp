@@ -5,7 +5,9 @@ from __future__ import annotations
 import functools
 import hashlib
 import logging
+import os
 import shutil
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -20,13 +22,40 @@ __all__ = ["discover_pdfs", "parse_pdf"]
 logger = logging.getLogger(__name__)
 
 _MIN_TEXT_LENGTH = 10
+_IMAGE_COVERAGE_THRESHOLD = 0.9
 _PAGE_BREAK = "\n-----\n\n"
 
 
+def _is_image_dominant(
+    page: pymupdf.Page,  # type: ignore[valid-type]
+    threshold: float = _IMAGE_COVERAGE_THRESHOLD,
+) -> bool:
+    """Check if a page is dominated by images (e.g. a scanned page).
+
+    Returns True when images cover >= *threshold* of the page area.
+    Scanned PDFs often embed a full-page image and may include a small
+    amount of overlay text (e.g. OCR metadata), so text length alone is
+    not sufficient to classify them as text pages.
+    """
+    page_area = page.rect.width * page.rect.height  # type: ignore[attr-defined]
+    if page_area == 0:
+        return False
+    total_image_area = 0.0
+    for img in page.get_images():  # type: ignore[attr-defined]
+        for r in page.get_image_rects(img[0]):  # type: ignore[attr-defined]
+            total_image_area += r.width * r.height
+    return total_image_area / page_area >= threshold
+
+
 def _page_has_text(page: pymupdf.Page, min_length: int = _MIN_TEXT_LENGTH) -> bool:  # type: ignore[valid-type]
-    """Check whether a PDF page has extractable text content."""
+    """Check whether a PDF page has meaningful extractable text.
+
+    A page is considered to have text only if it meets the minimum length
+    *and* is not dominated by a full-page image (which indicates a scan
+    with possibly minimal overlay text metadata).
+    """
     text = page.get_text().strip()  # type: ignore[attr-defined]
-    return len(text) >= min_length
+    return len(text) >= min_length and not _is_image_dominant(page)
 
 
 @functools.lru_cache(maxsize=1)
@@ -41,9 +70,20 @@ def _ocr_page(page: pymupdf.Page, language: str = "eng", dpi: int = 300) -> str:
     Returns empty string if OCR fails for any reason.
     """
     try:
-        tp = page.get_textpage_ocr(language=language, dpi=dpi, full=True)  # type: ignore[attr-defined]
-        text: str = page.get_text("text", textpage=tp)  # type: ignore[attr-defined]
-    except Exception:
+        # PyMuPDF/Tesseract C library writes directly to fd 2 (stderr),
+        # bypassing Python's sys.stderr. Redirect the actual file descriptor.
+        stderr_fd = sys.stderr.fileno()
+        saved_fd = os.dup(stderr_fd)
+        try:
+            devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull_fd, stderr_fd)
+            os.close(devnull_fd)
+            tp = page.get_textpage_ocr(language=language, dpi=dpi, full=True)  # type: ignore[attr-defined]
+            text: str = page.get_text("text", textpage=tp)  # type: ignore[attr-defined]
+        finally:
+            os.dup2(saved_fd, stderr_fd)
+            os.close(saved_fd)
+    except (RuntimeError, OSError):
         logger.warning(
             "OCR failed for page, skipping",
             exc_info=True,
