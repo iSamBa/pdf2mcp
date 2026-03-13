@@ -126,6 +126,12 @@ def cmd_config(args: argparse.Namespace) -> None:
     server and client are separate processes.  Use ``--transport stdio``
     for the legacy all-in-one mode where the client spawns the server.
     """
+    from pdf2mcp.interactive import (
+        CLIENT_CHOICES,
+        CLIENT_FILES,
+        build_config_snippet,
+    )
+
     logger = logging.getLogger("pdf2mcp")
 
     try:
@@ -140,6 +146,7 @@ def cmd_config(args: argparse.Namespace) -> None:
     transport = args.transport or settings.server_transport
     url = args.url or f"http://{settings.server_host}:{settings.server_port}/mcp"
 
+    client_labels = dict(CLIENT_CHOICES)
     clients = (
         [args.client]
         if args.client
@@ -147,9 +154,9 @@ def cmd_config(args: argparse.Namespace) -> None:
     )
 
     for client in clients:
-        snippet = _build_config_snippet(client, name, transport, url)
-        label = _client_label(client)
-        file_hint = _client_file(client)
+        snippet = build_config_snippet(client, name, transport, url)
+        label = client_labels.get(client, client)
+        file_hint = CLIENT_FILES.get(client, "config.json")
         print(f"\n# {label} ({file_hint})")
         print(json.dumps(snippet, indent=2))
 
@@ -161,53 +168,16 @@ def cmd_config(args: argparse.Namespace) -> None:
             )
 
 
-def _build_config_snippet(
-    client: str,
-    name: str,
-    transport: str,
-    url: str,
-) -> dict[str, object]:
-    """Build a config snippet for a specific client."""
-    is_http = transport != "stdio"
-
-    top_key = "servers" if client == "vscode" else "mcpServers"
-
-    if is_http:
-        server_config: dict[str, object] = {
-            "type": "http",
-            "url": url,
-        }
-    else:
-        server_config = {
-            "command": "uv",
-            "args": ["run", "pdf2mcp", "serve"],
-        }
-
-    return {top_key: {name: server_config}}
-
-
-def _client_label(client: str) -> str:
-    labels = {
-        "claude-code": "Claude Code",
-        "claude-desktop": "Claude Desktop",
-        "cursor": "Cursor",
-        "vscode": "VS Code / GitHub Copilot",
-    }
-    return labels.get(client, client)
-
-
-def _client_file(client: str) -> str:
-    files = {
-        "claude-code": ".mcp.json",
-        "claude-desktop": "claude_desktop_config.json",
-        "cursor": ".cursor/mcp.json",
-        "vscode": ".vscode/mcp.json",
-    }
-    return files.get(client, "config.json")
-
-
 def cmd_init(args: argparse.Namespace) -> None:
     """Scaffold a working directory for pdf2mcp."""
+    if getattr(args, "interactive", False):
+        _cmd_init_interactive(args)
+    else:
+        _cmd_init_scaffold(args)
+
+
+def _cmd_init_scaffold(args: argparse.Namespace) -> None:
+    """Non-interactive scaffolding (original behaviour)."""
     target = Path(args.directory)
 
     docs_dir = target / "docs"
@@ -233,6 +203,24 @@ def cmd_init(args: argparse.Namespace) -> None:
         "  4. pdf2mcp config",
         file=sys.stderr,
     )
+
+
+def _cmd_init_interactive(args: argparse.Namespace) -> None:
+    """Interactive setup wizard."""
+    from pdf2mcp.interactive import (
+        WizardCancelledError,
+        apply_wizard_result,
+        run_post_setup,
+        run_wizard,
+    )
+
+    try:
+        result = run_wizard(Path(args.directory))
+        apply_wizard_result(result)
+        run_post_setup(result)
+    except WizardCancelledError:
+        print("\nSetup cancelled.", file=sys.stderr)
+        sys.exit(130)
 
 
 _BANNER = r"""
@@ -345,6 +333,12 @@ def main() -> None:
         nargs="?",
         default=".",
         help="Target directory (default: current directory)",
+    )
+    init_parser.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="Launch guided setup wizard",
     )
 
     args = parser.parse_args()

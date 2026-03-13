@@ -32,6 +32,11 @@ backlog/
 .vscode/
 .idea/
 
+# AI assistants
+CLAUDE.md
+.claude/
+.serena/
+
 # OS
 .DS_Store
 Thumbs.db

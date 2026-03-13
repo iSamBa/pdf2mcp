@@ -95,7 +95,9 @@ class TestEmbedTexts:
         settings = _make_settings()
         embed_texts(["hello"], settings)
 
-        mock_openai_cls.assert_called_once_with(api_key="sk-test", base_url="https://api.openai.com/v1")
+        mock_openai_cls.assert_called_once_with(
+            api_key="sk-test", base_url="https://api.openai.com/v1"
+        )
 
     @patch("pdf2mcp.embeddings.OpenAI")
     def test_uses_correct_model(self, mock_openai_cls: MagicMock) -> None:

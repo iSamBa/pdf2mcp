@@ -20,6 +20,7 @@ def _extract_json(output: str) -> dict:  # type: ignore[type-arg]
     json_lines = [line for line in lines if not line.startswith("#")]
     return json.loads("\n".join(json_lines))  # type: ignore[no-any-return]
 
+
 # ── setup_logging ─────────────────────────────────────────────────
 
 
@@ -67,7 +68,9 @@ class TestMain:
                 main()
             assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert "0.3.0" in captured.out
+        from pdf2mcp import __version__
+
+        assert __version__ in captured.out
 
     @patch("pdf2mcp.cli.cmd_ingest")
     def test_ingest_subcommand_calls_cmd_ingest(self, mock_cmd: MagicMock) -> None:
@@ -130,12 +133,18 @@ class TestMain:
         with patch(
             "sys.argv",
             [
-                "pdf2mcp", "serve",
-                "--transport", "streamable-http",
-                "--host", "0.0.0.0",
-                "--port", "9000",
-                "--name", "my-docs",
-                "--docs-dir", "/my/pdfs",
+                "pdf2mcp",
+                "serve",
+                "--transport",
+                "streamable-http",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "9000",
+                "--name",
+                "my-docs",
+                "--docs-dir",
+                "/my/pdfs",
             ],
         ):
             main()
@@ -363,6 +372,14 @@ def _config_args(
 class TestCmdConfig:
     """Test the config subcommand."""
 
+    @pytest.fixture(autouse=True)
+    def _set_openai_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ensure OPENAI_API_KEY is set so get_settings() succeeds."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        from pdf2mcp.config import get_settings
+
+        get_settings.cache_clear()
+
     def test_prints_all_clients(self, capsys: pytest.CaptureFixture[str]) -> None:
         cmd_config(_config_args())
 
@@ -440,6 +457,7 @@ class TestCmdInit:
         target = tmp_path / "my-project"
         args = MagicMock()
         args.directory = str(target)
+        args.interactive = False
 
         cmd_init(args)
 
@@ -449,6 +467,7 @@ class TestCmdInit:
         target = tmp_path / "my-project"
         args = MagicMock()
         args.directory = str(target)
+        args.interactive = False
 
         cmd_init(args)
 
@@ -466,6 +485,7 @@ class TestCmdInit:
 
         args = MagicMock()
         args.directory = str(target)
+        args.interactive = False
 
         cmd_init(args)
 
@@ -477,6 +497,7 @@ class TestCmdInit:
         monkeypatch.chdir(tmp_path)
         args = MagicMock()
         args.directory = "."
+        args.interactive = False
 
         cmd_init(args)
 
