@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable
 from functools import lru_cache
 
 from openai import OpenAI
@@ -77,15 +78,29 @@ def _embed_batch(client: OpenAI, texts: list[str], model: str) -> list[list[floa
     return [item.embedding for item in response.data]
 
 
+def compute_batch_count(num_texts: int, batch_size: int) -> int:
+    """Return the number of embedding batches for *num_texts*."""
+    if num_texts == 0:
+        return 0
+    return (num_texts + batch_size - 1) // batch_size
+
+
 def embed_texts(
     texts: list[str],
     settings: ServerSettings,
+    on_batch_complete: Callable[[], None] | None = None,
 ) -> list[list[float]]:
     """Embed a list of texts using OpenAI API with batching.
 
     Splits texts into batches of ``settings.embedding_batch_size`` and
     calls the OpenAI embeddings endpoint for each batch. Failed calls
     are retried up to 6 times with exponential backoff.
+
+    Args:
+        texts: The texts to embed.
+        settings: Application settings.
+        on_batch_complete: Optional callback invoked after each batch
+            completes, useful for progress reporting.
     """
     if not texts:
         return []
@@ -96,7 +111,7 @@ def embed_texts(
     )
     all_embeddings: list[list[float]] = []
     batch_size = settings.embedding_batch_size
-    total_batches = (len(texts) + batch_size - 1) // batch_size
+    total_batches = compute_batch_count(len(texts), batch_size)
 
     for batch_num, i in enumerate(range(0, len(texts), batch_size), start=1):
         batch = texts[i : i + batch_size]
@@ -108,6 +123,8 @@ def embed_texts(
         )
         embeddings = _embed_batch(client, batch, settings.embedding_model)
         all_embeddings.extend(embeddings)
+        if on_batch_complete is not None:
+            on_batch_complete()
 
     logger.info("Embedded %d texts total", len(all_embeddings))
     return all_embeddings

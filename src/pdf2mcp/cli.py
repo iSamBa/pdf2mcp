@@ -80,7 +80,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     from pdf2mcp.ingest import run_ingestion
 
     try:
-        run_ingestion(settings, force=args.force)
+        run_ingestion(settings, force=args.force, show_progress=args.progress)
         logger.info("Ingestion completed successfully")
     except Exception as exc:
         logger.error("Ingestion failed: %s", exc)
@@ -268,6 +268,11 @@ def main() -> None:
         "--docs-dir",
         default=None,
         help="Override docs directory (default: from config or ./docs)",
+    )
+    ingest_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Show a progress bar during ingestion",
     )
 
     # serve subcommand

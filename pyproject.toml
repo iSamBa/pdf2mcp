@@ -1,6 +1,6 @@
 [project]
 name = "pdf2mcp"
-version = "0.2.3"
+version = "0.3.0"
 description = "Turn any PDF folder into a searchable MCP server"
 readme = "README.md"
 license = { text = "MIT" }
@@ -29,6 +29,7 @@ dependencies = [
     "pydantic-settings>=2.0",
     "python-dotenv>=1.0",
     "tenacity>=8.0",
+    "rich>=13.0",
 ]
 
 [project.urls]
