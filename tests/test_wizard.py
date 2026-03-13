@@ -257,22 +257,46 @@ class TestStepOpenai:
         assert mock_secret.call_count == 2
 
     @patch("pdf2mcp.interactive.text_prompt")
+    @patch("pdf2mcp.interactive.confirm_prompt", return_value=False)
     @patch("pdf2mcp.interactive.secret_prompt")
     @patch("pdf2mcp.interactive.print_step")
     def test_rejects_invalid_prefix(
         self,
         mock_step: MagicMock,
         mock_secret: MagicMock,
+        mock_confirm: MagicMock,
         mock_text: MagicMock,
     ) -> None:
         from pdf2mcp.interactive import _step_openai
 
+        # First key has bad prefix, user declines to continue, second is valid
         mock_secret.side_effect = ["bad-key", "sk-good123"]
         mock_text.return_value = "https://api.openai.com/v1"
 
         key, _ = _step_openai()
         assert key == "sk-good123"
         assert mock_secret.call_count == 2
+
+    @patch("pdf2mcp.interactive.text_prompt")
+    @patch("pdf2mcp.interactive.confirm_prompt", return_value=True)
+    @patch("pdf2mcp.interactive.secret_prompt")
+    @patch("pdf2mcp.interactive.print_step")
+    def test_accepts_non_sk_prefix_when_confirmed(
+        self,
+        mock_step: MagicMock,
+        mock_secret: MagicMock,
+        mock_confirm: MagicMock,
+        mock_text: MagicMock,
+    ) -> None:
+        from pdf2mcp.interactive import _step_openai
+
+        # Non-sk key, user confirms to proceed
+        mock_secret.return_value = "azure-key-12345"
+        mock_text.return_value = "https://my-instance.openai.azure.com/"
+
+        key, url = _step_openai()
+        assert key == "azure-key-12345"
+        assert url == "https://my-instance.openai.azure.com/"
 
 
 class TestStepServer:

@@ -260,10 +260,10 @@ def _step_openai(
                 "  [red]API key cannot be empty[/red]"
             )
             continue
-        if not key.startswith("sk-"):
-            _console.print(
-                "  [red]API key should start with 'sk-'[/red]"
-            )
+        if not key.startswith("sk-") and not confirm_prompt(
+            "  Key doesn't start with 'sk-'. Continue anyway?",
+            default=False,
+        ):
             continue
         break
 
@@ -628,9 +628,9 @@ def wizard_result_to_settings(result: WizardResult) -> ServerSettings:
 
     This avoids loading ``.env`` (which may not have been sourced yet).
     """
-    from pdf2mcp.config import ServerSettings
-
     from pydantic import SecretStr
+
+    from pdf2mcp.config import ServerSettings
 
     return ServerSettings(
         openai_api_key=SecretStr(result.openai_api_key),
