@@ -440,6 +440,7 @@ class TestCmdInit:
         target = tmp_path / "my-project"
         args = MagicMock()
         args.directory = str(target)
+        args.interactive = False
 
         cmd_init(args)
 
@@ -449,6 +450,7 @@ class TestCmdInit:
         target = tmp_path / "my-project"
         args = MagicMock()
         args.directory = str(target)
+        args.interactive = False
 
         cmd_init(args)
 
@@ -466,6 +468,7 @@ class TestCmdInit:
 
         args = MagicMock()
         args.directory = str(target)
+        args.interactive = False
 
         cmd_init(args)
 
@@ -477,6 +480,7 @@ class TestCmdInit:
         monkeypatch.chdir(tmp_path)
         args = MagicMock()
         args.directory = "."
+        args.interactive = False
 
         cmd_init(args)
 

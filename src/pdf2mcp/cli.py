@@ -208,6 +208,14 @@ def _client_file(client: str) -> str:
 
 def cmd_init(args: argparse.Namespace) -> None:
     """Scaffold a working directory for pdf2mcp."""
+    if getattr(args, "interactive", False):
+        _cmd_init_interactive(args)
+    else:
+        _cmd_init_scaffold(args)
+
+
+def _cmd_init_scaffold(args: argparse.Namespace) -> None:
+    """Non-interactive scaffolding (original behaviour)."""
     target = Path(args.directory)
 
     docs_dir = target / "docs"
@@ -233,6 +241,22 @@ def cmd_init(args: argparse.Namespace) -> None:
         "  4. pdf2mcp config",
         file=sys.stderr,
     )
+
+
+def _cmd_init_interactive(args: argparse.Namespace) -> None:
+    """Interactive setup wizard."""
+    from pdf2mcp.interactive import (
+        WizardCancelledError,
+        apply_wizard_result,
+        run_wizard,
+    )
+
+    try:
+        result = run_wizard(Path(args.directory))
+        apply_wizard_result(result)
+    except WizardCancelledError:
+        print("\nSetup cancelled.", file=sys.stderr)
+        sys.exit(130)
 
 
 _BANNER = r"""
@@ -345,6 +369,12 @@ def main() -> None:
         nargs="?",
         default=".",
         help="Target directory (default: current directory)",
+    )
+    init_parser.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="Launch guided setup wizard",
     )
 
     args = parser.parse_args()
