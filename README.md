@@ -81,8 +81,27 @@ pdf2mcp --version
 
 ## Quick Start
 
+### Interactive Setup (recommended)
+
 ```bash
-# 1. Scaffold a project (creates docs/ and .env)
+pdf2mcp init -i ./my-project
+```
+
+The interactive wizard walks you through all configuration in 6 steps:
+
+1. **Project directory** — confirm or change the target path
+2. **OpenAI API key** — securely enter your key (masked input) and optional base URL
+3. **Documents directory** — where your PDFs live (default: `docs`)
+4. **Embedding settings** — choose model, chunk size, and overlap
+5. **Server settings** — name, transport, host, and port
+6. **OCR settings** — enable/disable OCR for scanned PDFs
+
+After setup, the wizard optionally offers to ingest any PDFs found in your docs directory and generate ready-to-paste MCP client config snippets.
+
+### Manual Setup
+
+```bash
+# 1. Scaffold a project (creates docs/ and .env template)
 pdf2mcp init ./my-project
 cd my-project
 
@@ -121,6 +140,7 @@ pdf2mcp automatically detects image-only pages in PDFs and falls back to Tessera
 | Command | Description |
 |---------|-------------|
 | `pdf2mcp init [dir]` | Scaffold a working directory with `docs/` and `.env` |
+| `pdf2mcp init -i [dir]` | Launch the interactive setup wizard |
 | `pdf2mcp ingest` | Parse PDFs, chunk, embed, and store in vector DB |
 | `pdf2mcp serve` | Start the MCP server (HTTP by default) |
 | `pdf2mcp config` | Print ready-to-paste config for MCP clients |
@@ -151,6 +171,10 @@ pdf2mcp serve --name my-docs
 # Config for a specific client
 pdf2mcp config --client cursor
 pdf2mcp config --client claude-desktop --transport stdio
+
+# Interactive setup wizard
+pdf2mcp init -i ./my-project
+pdf2mcp init --interactive
 ```
 
 ## Client Configuration
