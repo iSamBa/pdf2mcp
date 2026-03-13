@@ -6,8 +6,9 @@ import logging
 
 from pdf2mcp.chunker import chunk_markdown
 from pdf2mcp.config import ServerSettings, get_settings
-from pdf2mcp.embeddings import embed_texts
+from pdf2mcp.embeddings import compute_batch_count, embed_texts
 from pdf2mcp.parser import discover_pdfs, parse_pdf
+from pdf2mcp.progress import IngestionProgress
 from pdf2mcp.store import (
     clear_database,
     create_vector_index,
@@ -27,6 +28,7 @@ def run_ingestion(
     settings: ServerSettings | None = None,
     *,
     force: bool = False,
+    show_progress: bool = False,
 ) -> None:
     """Run the full ingestion pipeline.
 
@@ -36,6 +38,7 @@ def run_ingestion(
     Args:
         settings: Application settings. Uses ``get_settings()`` if None.
         force: If True, clear the database and re-ingest everything.
+        show_progress: If True, display a Rich progress bar in the terminal.
     """
     if settings is None:
         settings = get_settings()
@@ -53,72 +56,15 @@ def run_ingestion(
         logger.warning("No PDF files found in %s", settings.docs_dir)
         return
 
-    ingested_count = 0
-    skipped_count = 0
-
-    for pdf_path in pdfs:
-        filename = pdf_path.name
-
-        # Parse
-        try:
-            parsed = parse_pdf(pdf_path)
-        except Exception:
-            logger.warning("Failed to parse %s, skipping", filename, exc_info=True)
-            continue
-
-        # Check if already ingested and unchanged
-        if (
-            not force
-            and filename in ingested
-            and ingested[filename] == parsed.file_hash
-        ):
-            logger.info("Skipping %s (unchanged)", filename)
-            skipped_count += 1
-            continue
-
-        # If previously ingested but changed, delete old chunks
-        if filename in ingested:
-            logger.info("Re-ingesting %s (content changed)", filename)
-            delete_by_source(db, filename)
-
-        # Chunk
-        chunks = chunk_markdown(
-            parsed.markdown,
-            filename,
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
+    if show_progress:
+        with IngestionProgress(total_docs=len(pdfs)) as progress:
+            ingested_count, skipped_count = _ingest_pdfs(
+                pdfs, db, settings, ingested, force, progress
+            )
+    else:
+        ingested_count, skipped_count = _ingest_pdfs(
+            pdfs, db, settings, ingested, force, None
         )
-
-        if not chunks:
-            logger.warning("No chunks produced from %s", filename)
-            continue
-
-        # Embed
-        texts = [chunk.text for chunk in chunks]
-        try:
-            embeddings = embed_texts(texts, settings)
-        except Exception:
-            logger.warning(
-                "Embedding failed for %s, skipping",
-                filename,
-                exc_info=True,
-            )
-            continue
-
-        # Store
-        try:
-            upsert_chunks(db, chunks, embeddings, settings.embedding_dimensions)
-            record_ingestion(db, filename, parsed.file_hash, len(chunks))
-        except Exception:
-            logger.warning(
-                "Storing failed for %s, skipping",
-                filename,
-                exc_info=True,
-            )
-            continue
-
-        ingested_count += 1
-        logger.info("Ingested %s: %d chunks", filename, len(chunks))
 
     # Create vector index for faster ANN search if enough rows exist
     if ingested_count > 0:
@@ -129,3 +75,126 @@ def run_ingestion(
         ingested_count,
         skipped_count,
     )
+
+
+def _ingest_pdfs(
+    pdfs: list,
+    db: object,
+    settings: ServerSettings,
+    ingested: dict,
+    force: bool,
+    progress: IngestionProgress | None,
+) -> tuple[int, int]:
+    """Process each PDF through the ingestion pipeline.
+
+    Returns:
+        Tuple of (ingested_count, skipped_count).
+    """
+    ingested_count = 0
+    skipped_count = 0
+
+    for pdf_path in pdfs:
+        filename = pdf_path.name
+
+        if progress is not None:
+            progress.document_start(filename)
+
+        # Parse
+        if progress is not None:
+            progress.stage_start("parsing")
+        try:
+            parsed = parse_pdf(pdf_path)
+        except Exception:
+            logger.warning("Failed to parse %s, skipping", filename, exc_info=True)
+            if progress is not None:
+                progress.document_complete()
+            continue
+        if progress is not None:
+            progress.stage_complete()
+
+        # Check if already ingested and unchanged
+        if (
+            not force
+            and filename in ingested
+            and ingested[filename] == parsed.file_hash
+        ):
+            logger.info("Skipping %s (unchanged)", filename)
+            skipped_count += 1
+            if progress is not None:
+                progress.document_skipped(filename)
+            continue
+
+        # If previously ingested but changed, delete old chunks
+        if filename in ingested:
+            logger.info("Re-ingesting %s (content changed)", filename)
+            delete_by_source(db, filename)
+
+        # Chunk
+        if progress is not None:
+            progress.stage_start("chunking")
+        chunks = chunk_markdown(
+            parsed.markdown,
+            filename,
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+        )
+
+        if not chunks:
+            logger.warning("No chunks produced from %s", filename)
+            if progress is not None:
+                progress.document_complete()
+            continue
+        if progress is not None:
+            progress.stage_complete()
+
+        # Embed — update progress total now that we know the batch count
+        texts = [chunk.text for chunk in chunks]
+        num_batches = compute_batch_count(len(texts), settings.embedding_batch_size)
+
+        if progress is not None:
+            progress.set_embedding_batches(num_batches)
+            progress.stage_start("embedding")
+
+        try:
+            embeddings = embed_texts(
+                texts,
+                settings,
+                on_batch_complete=progress.advance_embedding
+                if progress is not None
+                else None,
+            )
+        except Exception:
+            logger.warning(
+                "Embedding failed for %s, skipping",
+                filename,
+                exc_info=True,
+            )
+            if progress is not None:
+                progress.document_complete()
+            continue
+
+        # Store
+        if progress is not None:
+            progress.stage_start("storing")
+        try:
+            upsert_chunks(db, chunks, embeddings, settings.embedding_dimensions)
+            record_ingestion(db, filename, parsed.file_hash, len(chunks))
+        except Exception:
+            logger.warning(
+                "Storing failed for %s, skipping",
+                filename,
+                exc_info=True,
+            )
+            if progress is not None:
+                progress.document_complete()
+            continue
+        if progress is not None:
+            progress.stage_complete()
+
+        if progress is not None:
+            progress.document_complete()
+
+        ingested_count += 1
+        logger.info("Ingested %s: %d chunks", filename, len(chunks))
+
+    return ingested_count, skipped_count

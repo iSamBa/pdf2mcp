@@ -80,7 +80,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     from pdf2mcp.ingest import run_ingestion
 
     try:
-        run_ingestion(settings, force=args.force)
+        run_ingestion(settings, force=args.force, show_progress=True)
         logger.info("Ingestion completed successfully")
     except Exception as exc:
         logger.error("Ingestion failed: %s", exc)
