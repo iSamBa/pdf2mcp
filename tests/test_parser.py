@@ -517,7 +517,7 @@ class TestParsePdf:
         with caplog.at_level(logging.INFO, logger="pdf2mcp.parser"):
             parse_pdf(pdf_path)
 
-        assert "OCR'd 1 image-only page(s)" in caplog.text
+        assert "OCR completed: 1 page(s)" in caplog.text
 
     @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
@@ -662,3 +662,118 @@ class TestParsePdf:
             parse_pdf(pdf_path, ocr_enabled=False)
 
         assert "OCR disabled" in caplog.text
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_on_ocr_page_callback_called_per_page(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        pdf_path = tmp_path / "scanned.pdf"
+        pdf_path.write_bytes(b"scanned pdf")
+
+        pages = [_make_mock_page(""), _make_mock_page(""), _make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_ocr_page.return_value = "OCR text"
+
+        callback = MagicMock()
+        parse_pdf(pdf_path, on_ocr_page=callback)
+        assert callback.call_count == 3
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_on_ocr_page_callback_not_called_for_text_pdf(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        pdf_path = tmp_path / "text.pdf"
+        pdf_path.write_bytes(b"text pdf")
+
+        mock_pymupdf4llm.to_markdown.return_value = "# Content"
+        pages = [_make_mock_page("Plenty of text content on this page.")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+
+        callback = MagicMock()
+        parse_pdf(pdf_path, on_ocr_page=callback)
+        callback.assert_not_called()
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_on_ocr_start_callback_called_with_total(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        pdf_path = tmp_path / "scanned.pdf"
+        pdf_path.write_bytes(b"scanned pdf")
+
+        pages = [_make_mock_page(""), _make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_ocr_page.return_value = "OCR text"
+
+        start_callback = MagicMock()
+        parse_pdf(pdf_path, on_ocr_start=start_callback)
+        start_callback.assert_called_once_with(2)
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_on_ocr_start_not_called_when_no_ocr(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        pdf_path = tmp_path / "text.pdf"
+        pdf_path.write_bytes(b"text pdf")
+
+        mock_pymupdf4llm.to_markdown.return_value = "# Content"
+        pages = [_make_mock_page("Plenty of text content on this page.")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+
+        start_callback = MagicMock()
+        parse_pdf(pdf_path, on_ocr_start=start_callback)
+        start_callback.assert_not_called()
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_ocr_timing_in_log(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        pdf_path = tmp_path / "scanned.pdf"
+        pdf_path.write_bytes(b"scanned pdf")
+
+        pages = [_make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_ocr_page.return_value = "OCR text"
+
+        with caplog.at_level(logging.INFO, logger="pdf2mcp.parser"):
+            parse_pdf(pdf_path)
+
+        # Verify timing is included in log
+        assert "OCR completed: 1 page(s) in" in caplog.text
+        assert "s for scanned.pdf" in caplog.text

@@ -6,6 +6,8 @@ import functools
 import hashlib
 import logging
 import shutil
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pymupdf
@@ -66,6 +68,8 @@ def parse_pdf(
     ocr_enabled: bool = True,
     ocr_language: str = "eng",
     ocr_dpi: int = 300,
+    on_ocr_start: Callable[[int], None] | None = None,
+    on_ocr_page: Callable[[], None] | None = None,
 ) -> ParsedDocument:
     """Parse a single PDF file into Markdown.
 
@@ -109,6 +113,10 @@ def parse_pdf(
 
         # Build markdown page-by-page
         page_markdowns: list[str] = []
+        ocr_start = time.monotonic() if can_ocr else 0.0
+
+        if can_ocr and on_ocr_start is not None:
+            on_ocr_start(ocr_page_count)
 
         for i in range(page_count):
             if i not in image_only_pages:
@@ -124,14 +132,18 @@ def parse_pdf(
                 ocr_text = _ocr_page(doc[i], language=ocr_language, dpi=ocr_dpi)
                 if ocr_text:
                     page_markdowns.append(ocr_text)
+                if on_ocr_page is not None:
+                    on_ocr_page()
             # If image-only and no tesseract, skip (already warned)
 
         md_text = _PAGE_BREAK.join(page_markdowns)
 
     if ocr_page_count > 0 and can_ocr:
+        elapsed = time.monotonic() - ocr_start
         logger.info(
-            "OCR'd %d image-only page(s) in %s",
+            "OCR completed: %d page(s) in %.1fs for %s",
             ocr_page_count,
+            elapsed,
             pdf_path.name,
         )
 

@@ -99,22 +99,38 @@ def _ingest_pdfs(
         if progress is not None:
             progress.document_start(filename)
 
-        # Parse
+        # Parse (includes OCR if needed)
         if progress is not None:
             progress.stage_start("parsing")
+
+        had_ocr = False
+
+        def _on_ocr_start(total: int) -> None:
+            nonlocal had_ocr
+            had_ocr = True
+            if progress is not None:
+                progress.stage_complete()  # Complete parsing stage
+                progress.set_ocr_pages(total)  # Start OCR stage
+
+        def _on_ocr_page() -> None:
+            if progress is not None:
+                progress.advance_ocr()
+
         try:
             parsed = parse_pdf(
                 pdf_path,
                 ocr_enabled=settings.ocr_enabled,
                 ocr_language=settings.ocr_language,
                 ocr_dpi=settings.ocr_dpi,
+                on_ocr_start=_on_ocr_start if progress is not None else None,
+                on_ocr_page=_on_ocr_page if progress is not None else None,
             )
         except Exception:
             logger.warning("Failed to parse %s, skipping", filename, exc_info=True)
             if progress is not None:
                 progress.document_complete()
             continue
-        if progress is not None:
+        if progress is not None and not had_ocr:
             progress.stage_complete()
 
         # Check if already ingested and unchanged
