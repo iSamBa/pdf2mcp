@@ -23,7 +23,7 @@ __all__ = [
 ]
 
 # All interactive output goes to stderr (stdout reserved for MCP stdio).
-console = Console(stderr=True)
+_console = Console(stderr=True)
 
 _BANNER = r"""
 [bold cyan]██████╗ ██████╗ ███████╗██████╗ ███╗   ███╗ ██████╗██████╗[/]
@@ -55,11 +55,11 @@ def text_prompt(label: str, default: str | None = None) -> str:
     try:
         if default is not None:
             return Prompt.ask(
-                label, console=console, default=default
+                label, console=_console, default=default
             )
-        return Prompt.ask(label, console=console)
+        return Prompt.ask(label, console=_console)
     except KeyboardInterrupt:
-        console.print()
+        _console.print()
         raise WizardCancelledError from None
 
 
@@ -76,9 +76,9 @@ def secret_prompt(label: str) -> str:
         WizardCancelledError: If the user presses Ctrl+C.
     """
     try:
-        return Prompt.ask(label, console=console, password=True)
+        return Prompt.ask(label, console=_console, password=True)
     except KeyboardInterrupt:
-        console.print()
+        _console.print()
         raise WizardCancelledError from None
 
 
@@ -96,9 +96,9 @@ def confirm_prompt(label: str, default: bool = True) -> bool:
         WizardCancelledError: If the user presses Ctrl+C.
     """
     try:
-        return Confirm.ask(label, console=console, default=default)
+        return Confirm.ask(label, console=_console, default=default)
     except KeyboardInterrupt:
-        console.print()
+        _console.print()
         raise WizardCancelledError from None
 
 
@@ -120,11 +120,11 @@ def select_prompt(
     Raises:
         WizardCancelledError: If the user presses Ctrl+C.
     """
-    console.print(f"\n  [bold]{label}[/bold]")
+    _console.print(f"\n  [bold]{label}[/bold]")
 
     default_number: str | None = None
     for idx, (value, description) in enumerate(choices, 1):
-        console.print(f"    [bold]{idx}[/bold]) {description}")
+        _console.print(f"    [bold]{idx}[/bold]) {description}")
         if value == default:
             default_number = str(idx)
 
@@ -136,31 +136,31 @@ def select_prompt(
             if default_number is not None:
                 raw: str = Prompt.ask(
                     "  Select",
-                    console=console,
+                    console=_console,
                     default=default_number,
                 )
             else:
-                raw = Prompt.ask("  Select", console=console)
+                raw = Prompt.ask("  Select", console=_console)
         except KeyboardInterrupt:
-            console.print()
+            _console.print()
             raise WizardCancelledError from None
 
         try:
             index = int(raw) - 1
         except (ValueError, TypeError):
-            console.print(f"  [red]{err}[/red]")
+            _console.print(f"  [red]{err}[/red]")
             continue
 
         if 0 <= index < len(choices):
             return choices[index][0]
 
-        console.print(f"  [red]{err}[/red]")
+        _console.print(f"  [red]{err}[/red]")
 
 
 def print_banner() -> None:
     """Print the pdf2mcp ASCII art banner."""
-    console.print(_BANNER)
-    console.print(
+    _console.print(_BANNER)
+    _console.print(
         "  [dim]Interactive Setup Wizard[/dim]\n",
     )
 
@@ -173,6 +173,6 @@ def print_step(step: int, total: int, title: str) -> None:
     label = Text.from_markup(
         f"[bold green][{step}/{total}][/bold green] {title}"
     )
-    console.print()
-    console.print(Rule(label))
-    console.print()
+    _console.print()
+    _console.print(Rule(label))
+    _console.print()

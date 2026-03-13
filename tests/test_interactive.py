@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -16,7 +16,7 @@ from pdf2mcp.interactive import (
     text_prompt,
 )
 
-# ── WizardCancelledError ─────────────────────────────────────────────
+# ── WizardCancelledError ─────────────────────────────────────────
 
 
 class TestWizardCancelledError:
@@ -37,41 +37,33 @@ class TestTextPrompt:
     """Test the text_prompt function."""
 
     @patch("pdf2mcp.interactive.Prompt.ask", return_value="hello")
-    def test_returns_user_input(self, mock_ask: object) -> None:
+    def test_returns_user_input(self, mock_ask: MagicMock) -> None:
         result = text_prompt("Enter value")
         assert result == "hello"
 
     @patch("pdf2mcp.interactive.Prompt.ask", return_value="mydefault")
-    def test_passes_default(self, mock_ask: object) -> None:
-        from unittest.mock import ANY
-
+    def test_passes_default(self, mock_ask: MagicMock) -> None:
         result = text_prompt("Enter value", default="mydefault")
         assert result == "mydefault"
-        from pdf2mcp.interactive import Prompt
-
-        Prompt.ask.assert_called_once_with(  # type: ignore[attr-defined]
+        mock_ask.assert_called_once_with(
             "Enter value", console=ANY, default="mydefault"
         )
 
     @patch("pdf2mcp.interactive.Prompt.ask", return_value="typed")
     def test_no_default_omits_default_kwarg(
-        self, mock_ask: object
+        self, mock_ask: MagicMock
     ) -> None:
-        from unittest.mock import ANY
-
         result = text_prompt("Enter value")
         assert result == "typed"
-        from pdf2mcp.interactive import Prompt
-
-        Prompt.ask.assert_called_once_with(  # type: ignore[attr-defined]
-            "Enter value", console=ANY
-        )
+        mock_ask.assert_called_once_with("Enter value", console=ANY)
 
     @patch(
         "pdf2mcp.interactive.Prompt.ask",
         side_effect=KeyboardInterrupt,
     )
-    def test_raises_wizard_cancelled_on_ctrl_c(self, mock_ask: object) -> None:
+    def test_raises_wizard_cancelled_on_ctrl_c(
+        self, mock_ask: MagicMock
+    ) -> None:
         with pytest.raises(WizardCancelledError):
             text_prompt("Enter value")
 
@@ -83,18 +75,14 @@ class TestSecretPrompt:
     """Test the secret_prompt function."""
 
     @patch("pdf2mcp.interactive.Prompt.ask", return_value="sk-secret")
-    def test_returns_user_input(self, mock_ask: object) -> None:
+    def test_returns_user_input(self, mock_ask: MagicMock) -> None:
         result = secret_prompt("API Key")
         assert result == "sk-secret"
 
     @patch("pdf2mcp.interactive.Prompt.ask", return_value="sk-secret")
-    def test_uses_password_true(self, mock_ask: object) -> None:
-        from unittest.mock import ANY
-
+    def test_uses_password_true(self, mock_ask: MagicMock) -> None:
         secret_prompt("API Key")
-        from pdf2mcp.interactive import Prompt
-
-        Prompt.ask.assert_called_once_with(  # type: ignore[attr-defined]
+        mock_ask.assert_called_once_with(
             "API Key", console=ANY, password=True
         )
 
@@ -102,7 +90,9 @@ class TestSecretPrompt:
         "pdf2mcp.interactive.Prompt.ask",
         side_effect=KeyboardInterrupt,
     )
-    def test_raises_wizard_cancelled_on_ctrl_c(self, mock_ask: object) -> None:
+    def test_raises_wizard_cancelled_on_ctrl_c(
+        self, mock_ask: MagicMock
+    ) -> None:
         with pytest.raises(WizardCancelledError):
             secret_prompt("API Key")
 
@@ -114,21 +104,17 @@ class TestConfirmPrompt:
     """Test the confirm_prompt function."""
 
     @patch("pdf2mcp.interactive.Confirm.ask", return_value=True)
-    def test_returns_true(self, mock_ask: object) -> None:
+    def test_returns_true(self, mock_ask: MagicMock) -> None:
         assert confirm_prompt("Continue?") is True
 
     @patch("pdf2mcp.interactive.Confirm.ask", return_value=False)
-    def test_returns_false(self, mock_ask: object) -> None:
+    def test_returns_false(self, mock_ask: MagicMock) -> None:
         assert confirm_prompt("Continue?") is False
 
     @patch("pdf2mcp.interactive.Confirm.ask", return_value=True)
-    def test_passes_default(self, mock_ask: object) -> None:
-        from unittest.mock import ANY
-
+    def test_passes_default(self, mock_ask: MagicMock) -> None:
         confirm_prompt("Continue?", default=False)
-        from pdf2mcp.interactive import Confirm
-
-        Confirm.ask.assert_called_once_with(  # type: ignore[attr-defined]
+        mock_ask.assert_called_once_with(
             "Continue?", console=ANY, default=False
         )
 
@@ -136,7 +122,9 @@ class TestConfirmPrompt:
         "pdf2mcp.interactive.Confirm.ask",
         side_effect=KeyboardInterrupt,
     )
-    def test_raises_wizard_cancelled_on_ctrl_c(self, mock_ask: object) -> None:
+    def test_raises_wizard_cancelled_on_ctrl_c(
+        self, mock_ask: MagicMock
+    ) -> None:
         with pytest.raises(WizardCancelledError):
             confirm_prompt("Continue?")
 
@@ -154,48 +142,62 @@ class TestSelectPrompt:
     ]
 
     @patch("pdf2mcp.interactive.Prompt.ask", return_value="1")
-    def test_returns_first_choice_value(self, mock_ask: object) -> None:
+    def test_returns_first_choice_value(
+        self, mock_ask: MagicMock
+    ) -> None:
         result = select_prompt("Model", self._CHOICES)
         assert result == "small"
 
     @patch("pdf2mcp.interactive.Prompt.ask", return_value="2")
-    def test_returns_second_choice_value(self, mock_ask: object) -> None:
+    def test_returns_second_choice_value(
+        self, mock_ask: MagicMock
+    ) -> None:
         result = select_prompt("Model", self._CHOICES)
         assert result == "large"
 
     @patch("pdf2mcp.interactive.Prompt.ask", return_value="3")
-    def test_returns_third_choice_value(self, mock_ask: object) -> None:
+    def test_returns_third_choice_value(
+        self, mock_ask: MagicMock
+    ) -> None:
         result = select_prompt("Model", self._CHOICES)
         assert result == "ada"
 
     @patch("pdf2mcp.interactive.Prompt.ask", return_value="1")
-    def test_default_sets_prompt_default(self, mock_ask: object) -> None:
+    def test_default_sets_prompt_default(
+        self, mock_ask: MagicMock
+    ) -> None:
         select_prompt("Model", self._CHOICES, default="large")
-        from pdf2mcp.interactive import Prompt
-
-        Prompt.ask.assert_called_once_with(  # type: ignore[attr-defined]
+        mock_ask.assert_called_once_with(
             "  Select",
-            console=pytest.importorskip("pdf2mcp.interactive").console,
-            default="2",  # "large" is index 2 → default_number = "2"
+            console=ANY,
+            default="2",
         )
 
     @patch("pdf2mcp.interactive.Prompt.ask", side_effect=["abc", "2"])
-    def test_invalid_input_reprompts(self, mock_ask: object) -> None:
+    def test_invalid_input_reprompts(
+        self, mock_ask: MagicMock
+    ) -> None:
         result = select_prompt("Model", self._CHOICES)
         assert result == "large"
-        assert mock_ask.call_count == 2  # type: ignore[union-attr]
+        assert mock_ask.call_count == 2
 
-    @patch("pdf2mcp.interactive.Prompt.ask", side_effect=["0", "4", "2"])
-    def test_out_of_range_reprompts(self, mock_ask: object) -> None:
+    @patch(
+        "pdf2mcp.interactive.Prompt.ask", side_effect=["0", "4", "2"]
+    )
+    def test_out_of_range_reprompts(
+        self, mock_ask: MagicMock
+    ) -> None:
         result = select_prompt("Model", self._CHOICES)
         assert result == "large"
-        assert mock_ask.call_count == 3  # type: ignore[union-attr]
+        assert mock_ask.call_count == 3
 
     @patch(
         "pdf2mcp.interactive.Prompt.ask",
         side_effect=KeyboardInterrupt,
     )
-    def test_raises_wizard_cancelled_on_ctrl_c(self, mock_ask: object) -> None:
+    def test_raises_wizard_cancelled_on_ctrl_c(
+        self, mock_ask: MagicMock
+    ) -> None:
         with pytest.raises(WizardCancelledError):
             select_prompt("Model", self._CHOICES)
 
@@ -206,9 +208,18 @@ class TestSelectPrompt:
 class TestPrintBanner:
     """Test the print_banner function."""
 
-    @patch("pdf2mcp.interactive.console")
-    def test_prints_without_error(self, mock_console: object) -> None:
-        print_banner()  # Should not raise
+    @patch("pdf2mcp.interactive._console")
+    def test_prints_without_error(
+        self, mock_console: MagicMock
+    ) -> None:
+        print_banner()
+
+    @patch("pdf2mcp.interactive._console")
+    def test_calls_console_print(
+        self, mock_console: MagicMock
+    ) -> None:
+        print_banner()
+        assert mock_console.print.call_count == 2
 
 
 # ── print_step ───────────────────────────────────────────────────
@@ -217,6 +228,15 @@ class TestPrintBanner:
 class TestPrintStep:
     """Test the print_step function."""
 
-    @patch("pdf2mcp.interactive.console")
-    def test_prints_without_error(self, mock_console: object) -> None:
-        print_step(1, 6, "Project Directory")  # Should not raise
+    @patch("pdf2mcp.interactive._console")
+    def test_prints_without_error(
+        self, mock_console: MagicMock
+    ) -> None:
+        print_step(1, 6, "Project Directory")
+
+    @patch("pdf2mcp.interactive._console")
+    def test_calls_console_print(
+        self, mock_console: MagicMock
+    ) -> None:
+        print_step(1, 6, "Project Directory")
+        assert mock_console.print.call_count == 3
