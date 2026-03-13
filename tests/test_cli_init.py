@@ -16,38 +16,28 @@ class TestInitFlagParsing:
     """Verify --interactive / -i are recognized by argparse."""
 
     @patch("pdf2mcp.cli.cmd_init")
-    def test_interactive_long_flag(
-        self, mock_cmd: MagicMock
-    ) -> None:
-        with patch(
-            "sys.argv", ["pdf2mcp", "init", "--interactive"]
-        ):
+    def test_interactive_long_flag(self, mock_cmd: MagicMock) -> None:
+        with patch("sys.argv", ["pdf2mcp", "init", "--interactive"]):
             main()
         args = mock_cmd.call_args[0][0]
         assert args.interactive is True
 
     @patch("pdf2mcp.cli.cmd_init")
-    def test_interactive_short_flag(
-        self, mock_cmd: MagicMock
-    ) -> None:
+    def test_interactive_short_flag(self, mock_cmd: MagicMock) -> None:
         with patch("sys.argv", ["pdf2mcp", "init", "-i"]):
             main()
         args = mock_cmd.call_args[0][0]
         assert args.interactive is True
 
     @patch("pdf2mcp.cli.cmd_init")
-    def test_no_flag_defaults_false(
-        self, mock_cmd: MagicMock
-    ) -> None:
+    def test_no_flag_defaults_false(self, mock_cmd: MagicMock) -> None:
         with patch("sys.argv", ["pdf2mcp", "init"]):
             main()
         args = mock_cmd.call_args[0][0]
         assert args.interactive is False
 
     @patch("pdf2mcp.cli.cmd_init")
-    def test_directory_with_interactive(
-        self, mock_cmd: MagicMock
-    ) -> None:
+    def test_directory_with_interactive(self, mock_cmd: MagicMock) -> None:
         with patch(
             "sys.argv",
             ["pdf2mcp", "init", "mydir", "--interactive"],
@@ -65,9 +55,7 @@ class TestCmdInitDispatch:
     """Verify cmd_init dispatches to the correct path."""
 
     @patch("pdf2mcp.cli._cmd_init_scaffold")
-    def test_no_flag_calls_scaffold(
-        self, mock_scaffold: MagicMock
-    ) -> None:
+    def test_no_flag_calls_scaffold(self, mock_scaffold: MagicMock) -> None:
         args = MagicMock()
         args.interactive = False
         args.directory = "."
@@ -76,9 +64,7 @@ class TestCmdInitDispatch:
         mock_scaffold.assert_called_once_with(args)
 
     @patch("pdf2mcp.cli._cmd_init_interactive")
-    def test_flag_calls_interactive(
-        self, mock_interactive: MagicMock
-    ) -> None:
+    def test_flag_calls_interactive(self, mock_interactive: MagicMock) -> None:
         args = MagicMock()
         args.interactive = True
         args.directory = "."
@@ -141,9 +127,7 @@ class TestInteractivePath:
         mock_post_setup.assert_called_once_with(mock_wizard.return_value)
 
     @patch("pdf2mcp.interactive.run_wizard")
-    def test_cancelled_exits_130(
-        self, mock_wizard: MagicMock
-    ) -> None:
+    def test_cancelled_exits_130(self, mock_wizard: MagicMock) -> None:
         from pdf2mcp.interactive import WizardCancelledError
 
         mock_wizard.side_effect = WizardCancelledError

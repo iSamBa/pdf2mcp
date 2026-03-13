@@ -587,8 +587,13 @@ class TestFormatPageChunks:
 
     def test_formats_with_header(self) -> None:
         chunks = [
-            {"text": "Hello world", "section_title": "Intro", "chunk_index": 0,
-             "source_file": "test.pdf", "page_numbers": [1]},
+            {
+                "text": "Hello world",
+                "section_title": "Intro",
+                "chunk_index": 0,
+                "source_file": "test.pdf",
+                "page_numbers": [1],
+            },
         ]
         output = format_page_chunks(chunks, "test.pdf", 1)
         assert "Page 1 of test.pdf" in output
@@ -610,10 +615,20 @@ class TestFormatSectionChunks:
 
     def test_formats_with_header_and_pages(self) -> None:
         chunks = [
-            {"text": "First chunk", "section_title": "Safety", "chunk_index": 0,
-             "source_file": "manual.pdf", "page_numbers": [3, 4]},
-            {"text": "Second chunk", "section_title": "Safety", "chunk_index": 1,
-             "source_file": "manual.pdf", "page_numbers": [4, 5]},
+            {
+                "text": "First chunk",
+                "section_title": "Safety",
+                "chunk_index": 0,
+                "source_file": "manual.pdf",
+                "page_numbers": [3, 4],
+            },
+            {
+                "text": "Second chunk",
+                "section_title": "Safety",
+                "chunk_index": 1,
+                "source_file": "manual.pdf",
+                "page_numbers": [4, 5],
+            },
         ]
         output = format_section_chunks(chunks, "manual.pdf", "Safety")
         assert "Section 'Safety' from manual.pdf" in output

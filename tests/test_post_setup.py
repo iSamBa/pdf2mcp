@@ -17,10 +17,10 @@ from pdf2mcp.interactive import (
     wizard_result_to_settings,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_result(target_dir: Path | None = None) -> WizardResult:
     """Create a WizardResult with sensible defaults for testing."""
@@ -53,7 +53,9 @@ class TestBuildConfigSnippet:
 
     def test_http_transport(self) -> None:
         snippet = build_config_snippet(
-            "claude-code", "my-server", "streamable-http",
+            "claude-code",
+            "my-server",
+            "streamable-http",
             "http://127.0.0.1:8000/mcp",
         )
         assert snippet == {
@@ -67,7 +69,10 @@ class TestBuildConfigSnippet:
 
     def test_stdio_transport(self) -> None:
         snippet = build_config_snippet(
-            "claude-desktop", "my-server", "stdio", "",
+            "claude-desktop",
+            "my-server",
+            "stdio",
+            "",
         )
         assert snippet == {
             "mcpServers": {
@@ -80,7 +85,9 @@ class TestBuildConfigSnippet:
 
     def test_vscode_uses_servers_key(self) -> None:
         snippet = build_config_snippet(
-            "vscode", "my-server", "streamable-http",
+            "vscode",
+            "my-server",
+            "streamable-http",
             "http://127.0.0.1:8000/mcp",
         )
         assert "servers" in snippet
@@ -143,9 +150,7 @@ class TestPostSetupIngest:
         run_post_setup(result)
 
         # Should print "No PDFs found" message
-        output = " ".join(
-            str(call) for call in mock_console.print.call_args_list
-        )
+        output = " ".join(str(call) for call in mock_console.print.call_args_list)
         assert "No PDFs" in output or "no pdfs" in output.lower()
 
     @patch("pdf2mcp.interactive._console")
@@ -190,9 +195,7 @@ class TestPostSetupIngest:
 
         run_post_setup(result)
 
-        output = " ".join(
-            str(call) for call in mock_console.print.call_args_list
-        )
+        output = " ".join(str(call) for call in mock_console.print.call_args_list)
         assert "pdf2mcp ingest" in output
 
     @patch("pdf2mcp.interactive._console")
@@ -218,9 +221,7 @@ class TestPostSetupIngest:
             # Should not raise
             run_post_setup(result)
 
-        output = " ".join(
-            str(call) for call in mock_console.print.call_args_list
-        )
+        output = " ".join(str(call) for call in mock_console.print.call_args_list)
         assert "failed" in output.lower()
 
 
@@ -248,9 +249,7 @@ class TestPostSetupConfig:
 
         run_post_setup(result)
 
-        output = " ".join(
-            str(call) for call in mock_console.print.call_args_list
-        )
+        output = " ".join(str(call) for call in mock_console.print.call_args_list)
         assert "pdf2mcp config" in output
 
     @patch("pdf2mcp.interactive._console")
@@ -296,9 +295,7 @@ class TestPostSetupConfig:
 
         run_post_setup(result)
 
-        output = " ".join(
-            str(call) for call in mock_console.print.call_args_list
-        )
+        output = " ".join(str(call) for call in mock_console.print.call_args_list)
         assert "No clients selected" in output
 
 

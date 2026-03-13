@@ -114,18 +114,14 @@ class TestCheckTesseract:
     """Test Tesseract availability detection."""
 
     @patch("pdf2mcp.parser.shutil.which")
-    def test_returns_true_when_tesseract_found(
-        self, mock_which: MagicMock
-    ) -> None:
+    def test_returns_true_when_tesseract_found(self, mock_which: MagicMock) -> None:
         _check_tesseract.cache_clear()
         mock_which.return_value = "/usr/local/bin/tesseract"
         assert _check_tesseract() is True
         mock_which.assert_called_once_with("tesseract")
 
     @patch("pdf2mcp.parser.shutil.which")
-    def test_returns_false_when_tesseract_missing(
-        self, mock_which: MagicMock
-    ) -> None:
+    def test_returns_false_when_tesseract_missing(self, mock_which: MagicMock) -> None:
         _check_tesseract.cache_clear()
         mock_which.return_value = None
         assert _check_tesseract() is False
@@ -588,9 +584,7 @@ class TestParsePdf:
 
         pages = [_make_mock_page("Text with ----- in it and more text.")]
         mock_pymupdf.open.return_value = _make_mock_doc(pages)
-        mock_pymupdf4llm.to_markdown.return_value = (
-            "Content with -----\nrule in middle"
-        )
+        mock_pymupdf4llm.to_markdown.return_value = "Content with -----\nrule in middle"
 
         result = parse_pdf(pdf_path)
         assert "-----" in result.markdown
@@ -641,9 +635,7 @@ class TestParsePdf:
         mock_ocr_page.return_value = "Deutscher Text"
 
         parse_pdf(pdf_path, ocr_language="deu")
-        mock_ocr_page.assert_called_once_with(
-            pages[0], language="deu", dpi=300
-        )
+        mock_ocr_page.assert_called_once_with(pages[0], language="deu", dpi=300)
 
     @patch("pdf2mcp.parser._check_tesseract", return_value=True)
     @patch("pdf2mcp.parser._ocr_page")
@@ -665,9 +657,7 @@ class TestParsePdf:
         mock_ocr_page.return_value = "OCR text"
 
         parse_pdf(pdf_path, ocr_dpi=150)
-        mock_ocr_page.assert_called_once_with(
-            pages[0], language="eng", dpi=150
-        )
+        mock_ocr_page.assert_called_once_with(pages[0], language="eng", dpi=150)
 
     @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")

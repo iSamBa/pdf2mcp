@@ -19,6 +19,7 @@ from pdf2mcp.interactive import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _default_result(tmp_path: Path) -> WizardResult:
     """Build a WizardResult with all defaults for testing."""
     return WizardResult(
@@ -64,9 +65,7 @@ class TestWizardResult:
 class TestGenerateEnvContent:
     """Test .env file generation."""
 
-    def test_includes_api_key_uncommented(
-        self, tmp_path: Path
-    ) -> None:
+    def test_includes_api_key_uncommented(self, tmp_path: Path) -> None:
         result = _default_result(tmp_path)
         content = generate_env_content(result)
         assert "OPENAI_API_KEY=sk-test1234567890abcdef" in content
@@ -84,9 +83,7 @@ class TestGenerateEnvContent:
         assert "# PDF2MCP_CHUNK_SIZE=500" in content
         assert "# PDF2MCP_SERVER_PORT=8000" in content
 
-    def test_non_defaults_are_uncommented(
-        self, tmp_path: Path
-    ) -> None:
+    def test_non_defaults_are_uncommented(self, tmp_path: Path) -> None:
         result = _default_result(tmp_path)
         result.docs_dir = "my-pdfs"
         result.server_port = 9000
@@ -100,16 +97,11 @@ class TestGenerateEnvContent:
             if "PDF2MCP_SERVER_PORT=9000" in line:
                 assert not line.startswith("#")
 
-    def test_custom_base_url_uncommented(
-        self, tmp_path: Path
-    ) -> None:
+    def test_custom_base_url_uncommented(self, tmp_path: Path) -> None:
         result = _default_result(tmp_path)
         result.openai_base_url = "https://custom.api.com/v1"
         content = generate_env_content(result)
-        assert (
-            "PDF2MCP_OPENAI_BASE_URL=https://custom.api.com/v1"
-            in content
-        )
+        assert "PDF2MCP_OPENAI_BASE_URL=https://custom.api.com/v1" in content
 
     def test_ocr_disabled(self, tmp_path: Path) -> None:
         result = _default_result(tmp_path)

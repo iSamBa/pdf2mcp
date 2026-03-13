@@ -81,9 +81,7 @@ def search_in_doc(query: str, filename: str, num_results: int = 5) -> str:
 
     try:
         settings = get_settings()
-        results = search_in_document(
-            query, filename, settings, num_results=num_results
-        )
+        results = search_in_document(query, filename, settings, num_results=num_results)
         return format_results(results)
     except Exception:
         logger.exception("Scoped search failed")

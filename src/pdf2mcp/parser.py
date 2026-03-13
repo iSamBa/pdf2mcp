@@ -13,7 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pymupdf
-import pymupdf4llm  # type: ignore[import-untyped]
+import pymupdf4llm
 
 from pdf2mcp.models import ParsedDocument
 
@@ -44,7 +44,7 @@ def _is_image_dominant(
     for img in page.get_images():  # type: ignore[attr-defined]
         for r in page.get_image_rects(img[0]):  # type: ignore[attr-defined]
             total_image_area += r.width * r.height
-    return total_image_area / page_area >= threshold
+    return bool(total_image_area / page_area >= threshold)
 
 
 def _page_has_text(page: pymupdf.Page, min_length: int = _MIN_TEXT_LENGTH) -> bool:  # type: ignore[valid-type]
@@ -131,11 +131,7 @@ def parse_pdf(
                 image_only_pages.add(i)
 
         ocr_page_count = len(image_only_pages)
-        can_ocr = (
-            ocr_enabled
-            and ocr_page_count > 0
-            and _check_tesseract()
-        )
+        can_ocr = ocr_enabled and ocr_page_count > 0 and _check_tesseract()
 
         if ocr_page_count > 0 and not ocr_enabled:
             logger.info(
@@ -161,9 +157,7 @@ def parse_pdf(
         for i in range(page_count):
             if i not in image_only_pages:
                 # Text page: extract via pymupdf4llm (one page at a time)
-                page_md: str = pymupdf4llm.to_markdown(
-                    doc, pages=[i]
-                )
+                page_md: str = pymupdf4llm.to_markdown(doc, pages=[i])
                 stripped = page_md.strip()
                 if stripped:
                     page_markdowns.append(stripped)

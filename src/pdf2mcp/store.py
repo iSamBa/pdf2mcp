@@ -6,8 +6,8 @@ import logging
 from functools import lru_cache
 from typing import Any
 
-import lancedb  # type: ignore[import-untyped]
-import pyarrow as pa  # type: ignore[import-untyped]
+import lancedb
+import pyarrow as pa
 
 from pdf2mcp.config import ServerSettings
 from pdf2mcp.models import DocumentChunk

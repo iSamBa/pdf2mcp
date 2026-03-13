@@ -20,6 +20,7 @@ def _extract_json(output: str) -> dict:  # type: ignore[type-arg]
     json_lines = [line for line in lines if not line.startswith("#")]
     return json.loads("\n".join(json_lines))  # type: ignore[no-any-return]
 
+
 # ── setup_logging ─────────────────────────────────────────────────
 
 
@@ -130,12 +131,18 @@ class TestMain:
         with patch(
             "sys.argv",
             [
-                "pdf2mcp", "serve",
-                "--transport", "streamable-http",
-                "--host", "0.0.0.0",
-                "--port", "9000",
-                "--name", "my-docs",
-                "--docs-dir", "/my/pdfs",
+                "pdf2mcp",
+                "serve",
+                "--transport",
+                "streamable-http",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "9000",
+                "--name",
+                "my-docs",
+                "--docs-dir",
+                "/my/pdfs",
             ],
         ):
             main()

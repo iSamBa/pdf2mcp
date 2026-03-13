@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import lancedb  # type: ignore[import-untyped]
+import lancedb
 
 from pdf2mcp.chunker import chunk_markdown
 from pdf2mcp.config import (

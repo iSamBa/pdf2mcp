@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.compute as pc  # type: ignore[import-untyped]
+import pyarrow as pa
+import pyarrow.compute as pc
 from pydantic import BaseModel
 
 from pdf2mcp.config import ServerSettings
@@ -113,8 +113,7 @@ def search_documents(
     table = get_documents_table(settings)
     if table is None:
         logger.warning(
-            "No documents table found or table is empty."
-            " Run ingestion first."
+            "No documents table found or table is empty. Run ingestion first."
         )
         return []
 
@@ -245,8 +244,7 @@ def search_in_document(
     table = get_documents_table(settings)
     if table is None:
         logger.warning(
-            "No documents table found or table is empty."
-            " Run ingestion first."
+            "No documents table found or table is empty. Run ingestion first."
         )
         return []
 

@@ -72,9 +72,7 @@ def text_prompt(label: str, default: str | None = None) -> str:
     """
     try:
         if default is not None:
-            return Prompt.ask(
-                label, console=_console, default=default
-            )
+            return Prompt.ask(label, console=_console, default=default)
         return Prompt.ask(label, console=_console)
     except KeyboardInterrupt:
         _console.print()
@@ -188,9 +186,7 @@ def print_step(step: int, total: int, title: str) -> None:
 
     Displays a rule like ``── [1/6] Project Directory ──``.
     """
-    label = Text.from_markup(
-        f"[bold green][{step}/{total}][/bold green] {title}"
-    )
+    label = Text.from_markup(f"[bold green][{step}/{total}][/bold green] {title}")
     _console.print()
     _console.print(Rule(label))
     _console.print()
@@ -242,23 +238,18 @@ class WizardResult:
 def _step_project_dir(target_dir: Path) -> Path:
     """Step 1: Ask for the project directory."""
     print_step(1, _TOTAL_STEPS, "Project Directory")
-    result = text_prompt(
-        "  Project directory", default=str(target_dir)
-    )
+    result = text_prompt("  Project directory", default=str(target_dir))
     return Path(result)
 
 
-def _step_openai(
-) -> tuple[str, str]:
+def _step_openai() -> tuple[str, str]:
     """Step 2: Collect OpenAI API key and base URL."""
     print_step(2, _TOTAL_STEPS, "OpenAI API Key")
 
     while True:
         key = secret_prompt("  OpenAI API key")
         if not key:
-            _console.print(
-                "  [red]API key cannot be empty[/red]"
-            )
+            _console.print("  [red]API key cannot be empty[/red]")
             continue
         if not key.startswith("sk-") and not confirm_prompt(
             "  Key doesn't start with 'sk-'. Continue anyway?",
@@ -339,9 +330,7 @@ def _step_ocr() -> tuple[bool, str, int]:
     """Step 6: OCR settings."""
     print_step(6, _TOTAL_STEPS, "OCR Settings")
 
-    enabled = confirm_prompt(
-        "  Enable OCR for scanned PDFs?", default=True
-    )
+    enabled = confirm_prompt("  Enable OCR for scanned PDFs?", default=True)
 
     language = "eng"
     dpi = 300
@@ -470,9 +459,7 @@ def _print_summary(result: WizardResult) -> None:
         )
 
     _console.print()
-    _console.print(
-        Panel(table, title="Configuration Summary", border_style="green")
-    )
+    _console.print(Panel(table, title="Configuration Summary", border_style="green"))
     _console.print()
 
 
@@ -560,9 +547,7 @@ def apply_wizard_result(result: WizardResult) -> None:
     else:
         _write_env(env_path, result)
 
-    _console.print(
-        f"  [green]Created {target / result.docs_dir}/[/green]"
-    )
+    _console.print(f"  [green]Created {target / result.docs_dir}/[/green]")
     _console.print()
     _console.print(
         Panel(
@@ -663,14 +648,11 @@ def _post_setup_ingest(result: WizardResult) -> None:
         return
 
     _console.print(
-        f"  Found [bold]{len(pdfs)}[/bold] PDF(s) in "
-        f"[bold]{docs_path}/[/bold]."
+        f"  Found [bold]{len(pdfs)}[/bold] PDF(s) in [bold]{docs_path}/[/bold]."
     )
 
     if not confirm_prompt("  Ingest them now?", default=True):
-        _console.print(
-            "  [dim]You can run [bold]pdf2mcp ingest[/bold] later.[/dim]"
-        )
+        _console.print("  [dim]You can run [bold]pdf2mcp ingest[/bold] later.[/dim]")
         return
 
     from pdf2mcp import ingest as _ingest_mod
@@ -692,9 +674,7 @@ def _post_setup_config(result: WizardResult) -> None:
     if not confirm_prompt(
         "  Generate MCP client configuration snippets?", default=True
     ):
-        _console.print(
-            "  [dim]You can run [bold]pdf2mcp config[/bold] later.[/dim]"
-        )
+        _console.print("  [dim]You can run [bold]pdf2mcp config[/bold] later.[/dim]")
         return
 
     url = f"http://{result.server_host}:{result.server_port}/mcp"
@@ -732,10 +712,7 @@ def _post_setup_config(result: WizardResult) -> None:
             )
         )
 
-        if (
-            client == "claude-desktop"
-            and result.server_transport != "stdio"
-        ):
+        if client == "claude-desktop" and result.server_transport != "stdio":
             _console.print(
                 "  [yellow]Note:[/yellow] Claude Desktop requires stdio. "
                 "Start the server separately and use another client, "
