@@ -187,6 +187,16 @@ def print_step(step: int, total: int, title: str) -> None:
     _console.print()
 
 
+def _int_prompt(label: str, default: str) -> int:
+    """Prompt for an integer value, re-prompting on invalid input."""
+    while True:
+        raw = text_prompt(label, default=default)
+        try:
+            return int(raw)
+        except ValueError:
+            _console.print("  [red]Please enter a whole number[/red]")
+
+
 # ---------------------------------------------------------------------------
 # Wizard data model
 # ---------------------------------------------------------------------------
@@ -284,12 +294,10 @@ def _step_embedding() -> tuple[str, int, int]:
         default="text-embedding-3-small",
     )
 
-    chunk_size_str = text_prompt("  Chunk size", default="500")
-    chunk_overlap_str = text_prompt(
-        "  Chunk overlap", default="50"
-    )
+    chunk_size = _int_prompt("  Chunk size", default="500")
+    chunk_overlap = _int_prompt("  Chunk overlap", default="50")
 
-    return model, int(chunk_size_str), int(chunk_overlap_str)
+    return model, chunk_size, chunk_overlap
 
 
 def _step_server() -> tuple[str, str, str, int]:
@@ -313,8 +321,7 @@ def _step_server() -> tuple[str, str, str, int]:
     port = 8000
     if transport != "stdio":
         host = text_prompt("  Host", default="127.0.0.1")
-        port_str = text_prompt("  Port", default="8000")
-        port = int(port_str)
+        port = _int_prompt("  Port", default="8000")
 
     return name, transport, host, port
 
@@ -331,8 +338,7 @@ def _step_ocr() -> tuple[bool, str, int]:
     dpi = 300
     if enabled:
         language = text_prompt("  OCR language", default="eng")
-        dpi_str = text_prompt("  OCR DPI", default="300")
-        dpi = int(dpi_str)
+        dpi = _int_prompt("  OCR DPI", default="300")
 
     return enabled, language, dpi
 
@@ -428,7 +434,8 @@ def _print_summary(result: WizardResult) -> None:
     table.add_column(style="bold")
     table.add_column()
 
-    masked_key = result.openai_api_key[:7] + "..." + result.openai_api_key[-4:]
+    key = result.openai_api_key
+    masked_key = key[:7] + "..." + key[-4:] if len(key) > 11 else "sk-***"
     table.add_row("Project directory", str(result.target_dir))
     table.add_row("OpenAI API key", masked_key)
     table.add_row("OpenAI base URL", result.openai_base_url)
@@ -507,6 +514,13 @@ def run_wizard(target_dir: Path) -> WizardResult:
     )
 
 
+def _write_env(env_path: Path, result: WizardResult) -> None:
+    """Write .env and restrict permissions to owner-only."""
+    env_path.write_text(generate_env_content(result))
+    env_path.chmod(0o600)
+    _console.print(f"  [green]Wrote {env_path}[/green]")
+
+
 def apply_wizard_result(result: WizardResult) -> None:
     """Create directories and write ``.env`` from wizard results.
 
@@ -533,11 +547,9 @@ def apply_wizard_result(result: WizardResult) -> None:
         ):
             _console.print("  [dim]Skipped .env (kept existing)[/dim]")
         else:
-            env_path.write_text(generate_env_content(result))
-            _console.print(f"  [green]Wrote {env_path}[/green]")
+            _write_env(env_path, result)
     else:
-        env_path.write_text(generate_env_content(result))
-        _console.print(f"  [green]Wrote {env_path}[/green]")
+        _write_env(env_path, result)
 
     _console.print(
         f"  [green]Created {target / result.docs_dir}/[/green]"
