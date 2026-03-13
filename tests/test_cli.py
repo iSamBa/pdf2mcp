@@ -68,7 +68,9 @@ class TestMain:
                 main()
             assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert "0.4.0" in captured.out
+        from pdf2mcp import __version__
+
+        assert __version__ in captured.out
 
     @patch("pdf2mcp.cli.cmd_ingest")
     def test_ingest_subcommand_calls_cmd_ingest(self, mock_cmd: MagicMock) -> None:
@@ -369,6 +371,14 @@ def _config_args(
 
 class TestCmdConfig:
     """Test the config subcommand."""
+
+    @pytest.fixture(autouse=True)
+    def _set_openai_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ensure OPENAI_API_KEY is set so get_settings() succeeds."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        from pdf2mcp.config import get_settings
+
+        get_settings.cache_clear()
 
     def test_prints_all_clients(self, capsys: pytest.CaptureFixture[str]) -> None:
         cmd_config(_config_args())
