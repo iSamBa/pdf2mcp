@@ -82,6 +82,25 @@ class TestParsedDocument:
         assert doc.page_count == 10
         assert doc.file_hash == "abc123def456"
 
+    def test_ocr_pages_defaults_to_zero(self) -> None:
+        doc = ParsedDocument(
+            filename="text.pdf",
+            markdown="# Content",
+            page_count=5,
+            file_hash="abc123",
+        )
+        assert doc.ocr_pages == 0
+
+    def test_ocr_pages_explicit_value(self) -> None:
+        doc = ParsedDocument(
+            filename="scanned.pdf",
+            markdown="",
+            page_count=3,
+            file_hash="def456",
+            ocr_pages=3,
+        )
+        assert doc.ocr_pages == 3
+
     def test_missing_required_field(self) -> None:
         with pytest.raises(ValidationError):
             ParsedDocument(  # type: ignore[call-arg]

@@ -30,3 +30,4 @@ class ParsedDocument(BaseModel):
     markdown: str
     page_count: int
     file_hash: str
+    ocr_pages: int = 0
