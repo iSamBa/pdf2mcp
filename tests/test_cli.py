@@ -186,11 +186,9 @@ class TestCmdIngest:
         args.verbose = False
         args.force = False
         args.docs_dir = None
-        args.progress = False
-
         cmd_ingest(args)
 
-        mock_run.assert_called_once_with(settings, force=False, show_progress=False)
+        mock_run.assert_called_once_with(settings, force=False, show_progress=True)
 
     @patch("pdf2mcp.ingest.run_ingestion")
     @patch("pdf2mcp.config.get_settings")
