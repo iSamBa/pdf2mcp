@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import sys
@@ -10,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pdf2mcp.cli import cmd_config, cmd_init, cmd_ingest, cmd_serve, main, setup_logging
+from pdf2mcp.cli import cmd_config, cmd_ingest, cmd_init, cmd_serve, main, setup_logging
 
 
 def _extract_json(output: str) -> dict:  # type: ignore[type-arg]
@@ -66,7 +67,7 @@ class TestMain:
                 main()
             assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert "0.1.0" in captured.out
+        assert "0.3.0" in captured.out
 
     @patch("pdf2mcp.cli.cmd_ingest")
     def test_ingest_subcommand_calls_cmd_ingest(self, mock_cmd: MagicMock) -> None:
@@ -348,18 +349,22 @@ class TestCmdServe:
 # ── cmd_config ────────────────────────────────────────────────────
 
 
+def _config_args(
+    *,
+    name: str | None = None,
+    transport: str | None = None,
+    url: str | None = None,
+    client: str | None = None,
+) -> argparse.Namespace:
+    """Build a Namespace for cmd_config with the correct attributes."""
+    return argparse.Namespace(name=name, transport=transport, url=url, client=client)
+
+
 class TestCmdConfig:
     """Test the config subcommand."""
 
     def test_prints_all_clients(self, capsys: pytest.CaptureFixture[str]) -> None:
-        args = MagicMock()
-        args.name = None
-        args.transport = None
-        args.host = None
-        args.port = None
-        args.client = None
-
-        cmd_config(args)
+        cmd_config(_config_args())
 
         output = capsys.readouterr().out
         assert "Claude Code" in output
@@ -368,42 +373,27 @@ class TestCmdConfig:
         assert "VS Code" in output
 
     def test_single_client(self, capsys: pytest.CaptureFixture[str]) -> None:
-        args = MagicMock()
-        args.name = None
-        args.transport = None
-        args.host = None
-        args.port = None
-        args.client = "cursor"
-
-        cmd_config(args)
+        cmd_config(_config_args(client="cursor"))
 
         output = capsys.readouterr().out
         assert "Cursor" in output
         assert "Claude Code" not in output
 
     def test_custom_name(self, capsys: pytest.CaptureFixture[str]) -> None:
-        args = MagicMock()
-        args.name = "my-docs"
-        args.transport = None
-        args.host = None
-        args.port = None
-        args.client = "claude-code"
-
-        cmd_config(args)
+        cmd_config(_config_args(name="my-docs", client="claude-code"))
 
         output = capsys.readouterr().out
         parsed = _extract_json(output)
         assert "my-docs" in parsed["mcpServers"]
 
     def test_http_transport(self, capsys: pytest.CaptureFixture[str]) -> None:
-        args = MagicMock()
-        args.name = None
-        args.transport = "streamable-http"
-        args.host = None
-        args.port = 9000
-        args.client = "claude-code"
-
-        cmd_config(args)
+        cmd_config(
+            _config_args(
+                transport="streamable-http",
+                url="http://localhost:9000/mcp",
+                client="claude-code",
+            )
+        )
 
         output = capsys.readouterr().out
         parsed = _extract_json(output)
@@ -412,14 +402,7 @@ class TestCmdConfig:
         assert "9000" in server["url"]
 
     def test_stdio_transport(self, capsys: pytest.CaptureFixture[str]) -> None:
-        args = MagicMock()
-        args.name = None
-        args.transport = None
-        args.host = None
-        args.port = None
-        args.client = "claude-code"
-
-        cmd_config(args)
+        cmd_config(_config_args(transport="stdio", client="claude-code"))
 
         output = capsys.readouterr().out
         parsed = _extract_json(output)
@@ -428,37 +411,23 @@ class TestCmdConfig:
         assert "pdf2mcp" in server["args"]
 
     def test_vscode_uses_servers_key(self, capsys: pytest.CaptureFixture[str]) -> None:
-        args = MagicMock()
-        args.name = None
-        args.transport = None
-        args.host = None
-        args.port = None
-        args.client = "vscode"
-
-        cmd_config(args)
+        cmd_config(_config_args(client="vscode"))
 
         output = capsys.readouterr().out
         parsed = _extract_json(output)
         assert "servers" in parsed
         assert "mcpServers" not in parsed
 
-    def test_claude_desktop_always_stdio(
+    def test_claude_desktop_http_shows_note(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        args = MagicMock()
-        args.name = None
-        args.transport = "streamable-http"
-        args.host = None
-        args.port = None
-        args.client = "claude-desktop"
-
-        cmd_config(args)
+        cmd_config(_config_args(transport="streamable-http", client="claude-desktop"))
 
         output = capsys.readouterr().out
         parsed = _extract_json(output)
         server = parsed["mcpServers"]["pdf-docs"]
-        assert server["command"] == "uv"
-        assert "stdio" not in output or "Start server manually" in output
+        assert server["type"] == "http"
+        assert "Claude Desktop requires stdio" in output
 
 
 # ── cmd_init ──────────────────────────────────────────────────────
@@ -502,7 +471,9 @@ class TestCmdInit:
 
         assert env_file.read_text() == "EXISTING=value"
 
-    def test_current_dir_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_current_dir_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.chdir(tmp_path)
         args = MagicMock()
         args.directory = "."

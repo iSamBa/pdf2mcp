@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from pdf2mcp.chunker import chunk_markdown
 from pdf2mcp.config import ServerSettings, get_settings
@@ -78,10 +79,10 @@ def run_ingestion(
 
 
 def _ingest_pdfs(
-    pdfs: list,
+    pdfs: list[Path],
     db: object,
     settings: ServerSettings,
-    ingested: dict,
+    ingested: dict[str, str],
     force: bool,
     progress: IngestionProgress | None,
 ) -> tuple[int, int]:
@@ -128,6 +129,7 @@ def _ingest_pdfs(
         except Exception:
             logger.warning("Failed to parse %s, skipping", filename, exc_info=True)
             if progress is not None:
+                progress.stage_complete()
                 progress.document_complete()
             continue
         if progress is not None and not had_ocr:

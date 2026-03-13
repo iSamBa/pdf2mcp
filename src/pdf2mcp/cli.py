@@ -30,6 +30,11 @@ OPENAI_API_KEY=sk-your-api-key-here
 # PDF2MCP_SERVER_HOST=127.0.0.1
 # PDF2MCP_SERVER_PORT=8000
 
+# Optional: OCR settings (for scanned/image-only PDFs — requires Tesseract)
+# PDF2MCP_OCR_ENABLED=true
+# PDF2MCP_OCR_LANGUAGE=eng
+# PDF2MCP_OCR_DPI=300
+
 # ── Client settings (used by MCP clients to connect) ─────────────────
 
 # PDF2MCP_CLIENT_SERVER_NAME=pdf-docs

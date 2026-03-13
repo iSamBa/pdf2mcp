@@ -200,6 +200,10 @@ def _make_mock_doc(pages: list[MagicMock]) -> MagicMock:
 class TestParsePdf:
     """Test PDF parsing with mocked dependencies."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_tesseract_cache(self) -> None:
+        _check_tesseract.cache_clear()
+
     @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
@@ -329,8 +333,7 @@ class TestParsePdf:
         mock_pymupdf.open.return_value = _make_mock_doc(pages)
 
         result = parse_pdf(pdf_path)
-        assert result.ocr_pages == 3
-        assert result.ocr_pages == result.page_count
+        assert result.ocr_pages == 0  # Tesseract missing → no OCR performed
         assert result.markdown == ""
         mock_pymupdf4llm.to_markdown.assert_not_called()
 
@@ -468,7 +471,7 @@ class TestParsePdf:
         mock_pymupdf4llm.to_markdown.return_value = "Text page content"
 
         result = parse_pdf(pdf_path)
-        assert result.ocr_pages == 1
+        assert result.ocr_pages == 0  # Tesseract missing → no OCR performed
         assert "Text page content" in result.markdown
 
     @patch("pdf2mcp.parser._check_tesseract", return_value=True)
@@ -589,7 +592,7 @@ class TestParsePdf:
         mock_pymupdf.open.return_value = _make_mock_doc(pages)
 
         result = parse_pdf(pdf_path, ocr_enabled=False)
-        assert result.ocr_pages == 2
+        assert result.ocr_pages == 0  # OCR disabled → no OCR performed
         assert result.markdown == ""
         mock_ocr_page.assert_not_called()
 

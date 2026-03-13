@@ -10,6 +10,8 @@ from rich.progress import (
     BarColumn,
     Progress,
     SpinnerColumn,
+    Task,
+    TaskID,
     TaskProgressColumn,
     TextColumn,
     TimeRemainingColumn,
@@ -35,8 +37,8 @@ class _StageColumn(TextColumn):
     def __init__(self) -> None:
         super().__init__("")
 
-    def render(self, task: object) -> Text:  # type: ignore[override]
-        stage: str = task.fields.get("stage", "")  # type: ignore[union-attr]
+    def render(self, task: Task) -> Text:
+        stage: str = task.fields.get("stage", "")
         if not stage:
             return Text("")
         style = _STAGE_STYLES.get(stage, "white")
@@ -85,8 +87,8 @@ class IngestionProgress:
             TimeRemainingColumn(),
             console=self._console,
         )
-        self._overall_task = None
-        self._doc_task = None
+        self._overall_task: TaskID | None = None
+        self._doc_task: TaskID | None = None
         self._saved_handlers: list[logging.Handler] = []
 
     def __enter__(self) -> IngestionProgress:

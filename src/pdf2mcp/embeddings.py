@@ -54,7 +54,7 @@ def embed_query(query: str, settings: ServerSettings) -> list[float] | None:
     identical queries.
     """
     api_key = settings.openai_api_key.get_secret_value()
-    client = _get_client(api_key, settings.openai_base_url)
+    _get_client(api_key, settings.openai_base_url)
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:16]
 
     try:

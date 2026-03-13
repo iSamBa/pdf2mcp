@@ -13,7 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = ["ClientSettings", "ServerSettings", "get_settings"]
@@ -61,6 +61,22 @@ class ServerSettings(BaseSettings):
     ocr_enabled: bool = True
     ocr_language: str = "eng"
     ocr_dpi: int = 300
+
+    @field_validator("ocr_dpi")
+    @classmethod
+    def _validate_ocr_dpi(cls, v: int) -> int:
+        if v <= 0:
+            msg = f"ocr_dpi must be positive, got {v}"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("ocr_language")
+    @classmethod
+    def _validate_ocr_language(cls, v: str) -> str:
+        if not v.strip():
+            msg = "ocr_language must not be empty"
+            raise ValueError(msg)
+        return v
 
     # Search
     default_num_results: int = 5

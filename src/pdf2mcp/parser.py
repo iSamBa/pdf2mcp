@@ -152,5 +152,5 @@ def parse_pdf(
         markdown=md_text,
         page_count=page_count,
         file_hash=file_hash,
-        ocr_pages=ocr_page_count,
+        ocr_pages=ocr_page_count if can_ocr else 0,
     )

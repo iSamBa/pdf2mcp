@@ -144,6 +144,28 @@ class TestOcrSettingsOverrides:
         assert settings.ocr_dpi == 150
 
 
+class TestOcrSettingsValidation:
+    """Test OCR settings validation."""
+
+    def test_ocr_dpi_zero_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_OCR_DPI", "0")
+        with pytest.raises(ValidationError, match="ocr_dpi must be positive"):
+            Settings()
+
+    def test_ocr_dpi_negative_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_OCR_DPI", "-1")
+        with pytest.raises(ValidationError, match="ocr_dpi must be positive"):
+            Settings()
+
+    def test_ocr_language_empty_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_OCR_LANGUAGE", "  ")
+        with pytest.raises(ValidationError, match="ocr_language must not be empty"):
+            Settings()
+
+
 class TestSettingsOverrides:
     """Test that custom env vars override defaults."""
 

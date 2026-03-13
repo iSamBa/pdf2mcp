@@ -6,11 +6,11 @@ import logging
 from typing import Any
 
 import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.compute as pc
+import pyarrow.compute as pc  # type: ignore[import-untyped]
 from pydantic import BaseModel
 
 from pdf2mcp.config import ServerSettings
-from pdf2mcp.embeddings import embed_query, embed_texts
+from pdf2mcp.embeddings import embed_query
 from pdf2mcp.store import (
     DOCUMENTS_TABLE,
     METADATA_TABLE,
@@ -84,7 +84,10 @@ def search_documents(
     # Search LanceDB using cached table handle
     table = get_documents_table(settings)
     if table is None:
-        logger.warning("No documents table found or table is empty. Run ingestion first.")
+        logger.warning(
+            "No documents table found or table is empty."
+            " Run ingestion first."
+        )
         return []
 
     rows: list[dict[str, Any]] = table.search(query_vector).limit(num_results).to_list()
@@ -222,7 +225,10 @@ def search_in_document(
     # Use cached table handle
     table = get_documents_table(settings)
     if table is None:
-        logger.warning("No documents table found or table is empty. Run ingestion first.")
+        logger.warning(
+            "No documents table found or table is empty."
+            " Run ingestion first."
+        )
         return []
 
     escaped = _escape_filter_value(filename)
