@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import logging
 import shutil
@@ -26,15 +27,26 @@ def _page_has_text(page: pymupdf.Page, min_length: int = _MIN_TEXT_LENGTH) -> bo
     return len(text) >= min_length
 
 
+@functools.lru_cache(maxsize=1)
 def _check_tesseract() -> bool:
     """Check if Tesseract OCR is available on the system."""
     return shutil.which("tesseract") is not None
 
 
 def _ocr_page(page: pymupdf.Page, language: str = "eng") -> str:  # type: ignore[valid-type]
-    """Extract text from an image-only page using OCR."""
-    tp = page.get_textpage_ocr(language=language, dpi=300, full=True)  # type: ignore[attr-defined]
-    text: str = page.get_text("text", textpage=tp)  # type: ignore[attr-defined]
+    """Extract text from an image-only page using OCR.
+
+    Returns empty string if OCR fails for any reason.
+    """
+    try:
+        tp = page.get_textpage_ocr(language=language, dpi=300, full=True)  # type: ignore[attr-defined]
+        text: str = page.get_text("text", textpage=tp)  # type: ignore[attr-defined]
+    except Exception:
+        logger.warning(
+            "OCR failed for page, skipping",
+            exc_info=True,
+        )
+        return ""
     return text.strip()
 
 
@@ -63,10 +75,10 @@ def parse_pdf(pdf_path: Path) -> ParsedDocument:
         page_count: int = len(doc)
 
         # Classify pages
-        image_only_pages: list[int] = []
+        image_only_pages: set[int] = set()
         for i, page in enumerate(doc):
             if not _page_has_text(page):
-                image_only_pages.append(i)
+                image_only_pages.add(i)
 
         ocr_page_count = len(image_only_pages)
         has_tesseract = _check_tesseract() if ocr_page_count > 0 else False
@@ -81,26 +93,18 @@ def parse_pdf(pdf_path: Path) -> ParsedDocument:
 
         # Build markdown page-by-page
         page_markdowns: list[str] = []
-        text_pages = [i for i in range(page_count) if i not in image_only_pages]
 
-        # Extract text pages via pymupdf4llm (batch for efficiency)
-        text_page_md: dict[int, str] = {}
-        if text_pages:
-            full_md = pymupdf4llm.to_markdown(
-                doc, pages=text_pages
-            )
-            # pymupdf4llm joins pages with page break markers
-            # Split them back to map to individual pages
-            parts = full_md.split("-----")
-            for idx, part in enumerate(parts):
-                if idx < len(text_pages):
-                    text_page_md[text_pages[idx]] = part.strip()
-
-        # Assemble final markdown in page order
         for i in range(page_count):
-            if i in text_page_md:
-                page_markdowns.append(text_page_md[i])
-            elif i in image_only_pages and has_tesseract:
+            if i not in image_only_pages:
+                # Text page: extract via pymupdf4llm (one page at a time)
+                page_md: str = pymupdf4llm.to_markdown(
+                    doc, pages=[i]
+                )
+                stripped = page_md.strip()
+                if stripped:
+                    page_markdowns.append(stripped)
+            elif has_tesseract:
+                # Image-only page: OCR via Tesseract
                 ocr_text = _ocr_page(doc[i])
                 if ocr_text:
                     page_markdowns.append(ocr_text)

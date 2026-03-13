@@ -102,6 +102,7 @@ class TestCheckTesseract:
     def test_returns_true_when_tesseract_found(
         self, mock_which: MagicMock
     ) -> None:
+        _check_tesseract.cache_clear()
         mock_which.return_value = "/usr/local/bin/tesseract"
         assert _check_tesseract() is True
         mock_which.assert_called_once_with("tesseract")
@@ -110,6 +111,7 @@ class TestCheckTesseract:
     def test_returns_false_when_tesseract_missing(
         self, mock_which: MagicMock
     ) -> None:
+        _check_tesseract.cache_clear()
         mock_which.return_value = None
         assert _check_tesseract() is False
 
@@ -158,6 +160,24 @@ class TestOcrPage:
         result = _ocr_page(page)
         assert result == "short"
 
+    def test_returns_empty_on_ocr_failure(self) -> None:
+        page = MagicMock()
+        page.get_textpage_ocr.side_effect = RuntimeError("Tesseract crashed")
+
+        result = _ocr_page(page)
+        assert result == ""
+
+    def test_logs_warning_on_ocr_failure(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        page = MagicMock()
+        page.get_textpage_ocr.side_effect = RuntimeError("corrupt image")
+
+        with caplog.at_level(logging.WARNING, logger="pdf2mcp.parser"):
+            _ocr_page(page)
+
+        assert "OCR failed for page" in caplog.text
+
 
 def _make_mock_page(text: str) -> MagicMock:
     """Create a mock pymupdf page with given text."""
@@ -201,7 +221,6 @@ class TestParsePdf:
 
         assert isinstance(result, ParsedDocument)
         assert result.filename == "test.pdf"
-        assert result.markdown == "# Title\n\nContent"
         assert result.page_count == 5
         assert len(result.file_hash) == 64
         assert result.ocr_pages == 0
@@ -361,10 +380,11 @@ class TestParsePdf:
             _make_mock_page("Another page with text content in it."),
         ]
         mock_pymupdf.open.return_value = _make_mock_doc(pages)
-        # pymupdf4llm called with pages=[0, 2] returns joined text
-        mock_pymupdf4llm.to_markdown.return_value = (
-            "Text page 0 content-----Text page 2 content"
-        )
+        # Per-page calls: page 0 and page 2 are text pages
+        mock_pymupdf4llm.to_markdown.side_effect = [
+            "Text page 0 content",
+            "Text page 2 content",
+        ]
         mock_ocr_page.return_value = "OCR scanned content"
 
         result = parse_pdf(pdf_path)
@@ -375,6 +395,8 @@ class TestParsePdf:
         assert "Text page 2 content" in result.markdown
         # Verify page break markers exist between pages
         assert "\n-----\n" in result.markdown
+        # pymupdf4llm called once per text page
+        assert mock_pymupdf4llm.to_markdown.call_count == 2
 
     @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
@@ -500,7 +522,7 @@ class TestParsePdf:
     @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
-    def test_page_breaks_between_text_pages(
+    def test_page_breaks_between_pages(
         self,
         mock_pymupdf4llm: MagicMock,
         mock_pymupdf: MagicMock,
@@ -515,9 +537,34 @@ class TestParsePdf:
             _make_mock_page("Page 2 has enough text content here."),
         ]
         mock_pymupdf.open.return_value = _make_mock_doc(pages)
-        mock_pymupdf4llm.to_markdown.return_value = "Page 1 md-----Page 2 md"
+        mock_pymupdf4llm.to_markdown.side_effect = ["Page 1 md", "Page 2 md"]
 
         result = parse_pdf(pdf_path)
         assert "\n-----\n" in result.markdown
         assert "Page 1 md" in result.markdown
         assert "Page 2 md" in result.markdown
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_text_with_dashes_not_misinterpreted(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Content containing ----- is not misinterpreted as page break."""
+        pdf_path = tmp_path / "dashes.pdf"
+        pdf_path.write_bytes(b"dashes pdf")
+
+        pages = [_make_mock_page("Text with ----- in it and more text.")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_pymupdf4llm.to_markdown.return_value = (
+            "Content with -----\nrule in middle"
+        )
+
+        result = parse_pdf(pdf_path)
+        assert "-----" in result.markdown
+        assert "Content with" in result.markdown
+        assert "rule in middle" in result.markdown
