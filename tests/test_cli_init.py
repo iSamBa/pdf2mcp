@@ -120,12 +120,14 @@ class TestScaffoldUnchanged:
 class TestInteractivePath:
     """Verify the wizard is invoked and errors are handled."""
 
+    @patch("pdf2mcp.interactive.run_post_setup")
     @patch("pdf2mcp.interactive.apply_wizard_result")
     @patch("pdf2mcp.interactive.run_wizard")
     def test_calls_wizard(
         self,
         mock_wizard: MagicMock,
         mock_apply: MagicMock,
+        mock_post_setup: MagicMock,
     ) -> None:
         mock_wizard.return_value = MagicMock()
         args = MagicMock()
@@ -136,6 +138,7 @@ class TestInteractivePath:
 
         mock_wizard.assert_called_once_with(Path("/tmp/test"))
         mock_apply.assert_called_once_with(mock_wizard.return_value)
+        mock_post_setup.assert_called_once_with(mock_wizard.return_value)
 
     @patch("pdf2mcp.interactive.run_wizard")
     def test_cancelled_exits_130(

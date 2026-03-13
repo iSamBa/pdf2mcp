@@ -7,13 +7,20 @@ available for MCP stdio transport.
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from pdf2mcp.config import ServerSettings
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.rule import Rule
+from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
@@ -25,10 +32,12 @@ __all__ = [
     "generate_env_content",
     "print_banner",
     "print_step",
+    "run_post_setup",
     "run_wizard",
     "secret_prompt",
     "select_prompt",
     "text_prompt",
+    "wizard_result_to_settings",
 ]
 
 # All interactive output goes to stderr (stdout reserved for MCP stdio).
@@ -565,3 +574,190 @@ def apply_wizard_result(result: WizardResult) -> None:
             border_style="green",
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Post-setup actions
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
+
+# Client metadata used by both post-setup config and cli.py
+CLIENT_CHOICES: list[tuple[str, str]] = [
+    ("claude-code", "Claude Code"),
+    ("claude-desktop", "Claude Desktop"),
+    ("cursor", "Cursor"),
+    ("vscode", "VS Code / GitHub Copilot"),
+]
+
+CLIENT_FILES: dict[str, str] = {
+    "claude-code": ".mcp.json",
+    "claude-desktop": "claude_desktop_config.json",
+    "cursor": ".cursor/mcp.json",
+    "vscode": ".vscode/mcp.json",
+}
+
+
+def build_config_snippet(
+    client: str,
+    name: str,
+    transport: str,
+    url: str,
+) -> dict[str, object]:
+    """Build an MCP client config snippet.
+
+    This is the canonical implementation used by both the CLI ``config``
+    command and the interactive post-setup flow.
+    """
+    is_http = transport != "stdio"
+    top_key = "servers" if client == "vscode" else "mcpServers"
+
+    if is_http:
+        server_config: dict[str, object] = {"type": "http", "url": url}
+    else:
+        server_config = {
+            "command": "uv",
+            "args": ["run", "pdf2mcp", "serve"],
+        }
+
+    return {top_key: {name: server_config}}
+
+
+def wizard_result_to_settings(result: WizardResult) -> ServerSettings:
+    """Construct :class:`ServerSettings` directly from wizard values.
+
+    This avoids loading ``.env`` (which may not have been sourced yet).
+    """
+    from pdf2mcp.config import ServerSettings
+
+    from pydantic import SecretStr
+
+    return ServerSettings(
+        openai_api_key=SecretStr(result.openai_api_key),
+        openai_base_url=result.openai_base_url,
+        docs_dir=result.target_dir / result.docs_dir,
+        data_dir=result.target_dir / result.data_dir,
+        embedding_model=result.embedding_model,
+        chunk_size=result.chunk_size,
+        chunk_overlap=result.chunk_overlap,
+        server_name=result.server_name,
+        server_transport=result.server_transport,
+        server_host=result.server_host,
+        server_port=result.server_port,
+        ocr_enabled=result.ocr_enabled,
+        ocr_language=result.ocr_language,
+        ocr_dpi=result.ocr_dpi,
+    )
+
+
+def _post_setup_ingest(result: WizardResult) -> None:
+    """Offer to ingest PDFs if any exist in the docs directory."""
+    docs_path = result.target_dir / result.docs_dir
+    pdfs = list(docs_path.glob("*.pdf"))
+
+    if not pdfs:
+        _console.print(
+            f"  [dim]No PDFs found in {docs_path}/ yet. "
+            f"Add your PDFs and run [bold]pdf2mcp ingest[/bold].[/dim]"
+        )
+        return
+
+    _console.print(
+        f"  Found [bold]{len(pdfs)}[/bold] PDF(s) in "
+        f"[bold]{docs_path}/[/bold]."
+    )
+
+    if not confirm_prompt("  Ingest them now?", default=True):
+        _console.print(
+            "  [dim]You can run [bold]pdf2mcp ingest[/bold] later.[/dim]"
+        )
+        return
+
+    from pdf2mcp import ingest as _ingest_mod
+
+    settings = wizard_result_to_settings(result)
+    try:
+        _ingest_mod.run_ingestion(settings, show_progress=True)
+        _console.print("  [green]Ingestion completed successfully.[/green]")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Ingestion failed", exc_info=True)
+        _console.print(
+            f"  [red]Ingestion failed:[/red] {exc}\n"
+            f"  [dim]You can retry with [bold]pdf2mcp ingest[/bold].[/dim]"
+        )
+
+
+def _post_setup_config(result: WizardResult) -> None:
+    """Offer to generate MCP client config snippets."""
+    if not confirm_prompt(
+        "  Generate MCP client configuration snippets?", default=True
+    ):
+        _console.print(
+            "  [dim]You can run [bold]pdf2mcp config[/bold] later.[/dim]"
+        )
+        return
+
+    url = f"http://{result.server_host}:{result.server_port}/mcp"
+
+    # Ask which clients
+    selected: list[str] = []
+    for value, label in CLIENT_CHOICES:
+        if confirm_prompt(f"    {label}?", default=True):
+            selected.append(value)
+
+    if not selected:
+        _console.print("  [dim]No clients selected.[/dim]")
+        return
+
+    for client in selected:
+        snippet = build_config_snippet(
+            client,
+            result.server_name,
+            result.server_transport,
+            url,
+        )
+        label = dict(CLIENT_CHOICES).get(client, client)
+        file_hint = CLIENT_FILES.get(client, "config.json")
+
+        _console.print()
+        _console.print(
+            Panel(
+                Syntax(
+                    json.dumps(snippet, indent=2),
+                    "json",
+                    theme="monokai",
+                ),
+                title=f"{label}  ({file_hint})",
+                border_style="cyan",
+            )
+        )
+
+        if (
+            client == "claude-desktop"
+            and result.server_transport != "stdio"
+        ):
+            _console.print(
+                "  [yellow]Note:[/yellow] Claude Desktop requires stdio. "
+                "Start the server separately and use another client, "
+                "or reconfigure with --transport stdio."
+            )
+
+
+def run_post_setup(result: WizardResult) -> None:
+    """Run optional post-setup actions after the wizard scaffolds the project.
+
+    Offers to:
+    1. Ingest PDFs if any are found in the docs directory.
+    2. Generate MCP client configuration snippets.
+
+    Raises:
+        WizardCancelledError: If the user presses Ctrl+C.
+    """
+    _console.print()
+    title = Text.from_markup("[bold green]Post-Setup Actions[/bold green]")
+    _console.print(Rule(title))
+    _console.print()
+
+    _post_setup_ingest(result)
+    _console.print()
+    _post_setup_config(result)
