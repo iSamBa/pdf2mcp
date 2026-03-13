@@ -568,3 +568,97 @@ class TestParsePdf:
         assert "-----" in result.markdown
         assert "Content with" in result.markdown
         assert "rule in middle" in result.markdown
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_ocr_disabled_skips_all_ocr(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """When ocr_enabled=False, no OCR is performed even if Tesseract exists."""
+        pdf_path = tmp_path / "scanned.pdf"
+        pdf_path.write_bytes(b"scanned pdf")
+
+        pages = [_make_mock_page(""), _make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+
+        result = parse_pdf(pdf_path, ocr_enabled=False)
+        assert result.ocr_pages == 2
+        assert result.markdown == ""
+        mock_ocr_page.assert_not_called()
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_ocr_language_passed_to_ocr_page(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        pdf_path = tmp_path / "german.pdf"
+        pdf_path.write_bytes(b"german pdf")
+
+        pages = [_make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_ocr_page.return_value = "Deutscher Text"
+
+        parse_pdf(pdf_path, ocr_language="deu")
+        mock_ocr_page.assert_called_once_with(
+            pages[0], language="deu", dpi=300
+        )
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_ocr_dpi_passed_to_ocr_page(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        pdf_path = tmp_path / "lowdpi.pdf"
+        pdf_path.write_bytes(b"lowdpi pdf")
+
+        pages = [_make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_ocr_page.return_value = "OCR text"
+
+        parse_pdf(pdf_path, ocr_dpi=150)
+        mock_ocr_page.assert_called_once_with(
+            pages[0], language="eng", dpi=150
+        )
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_ocr_disabled_logs_info(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        pdf_path = tmp_path / "scanned.pdf"
+        pdf_path.write_bytes(b"scanned pdf")
+
+        pages = [_make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+
+        with caplog.at_level(logging.INFO, logger="pdf2mcp.parser"):
+            parse_pdf(pdf_path, ocr_enabled=False)
+
+        assert "OCR disabled" in caplog.text

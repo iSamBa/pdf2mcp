@@ -103,6 +103,47 @@ class TestSettingsValidation:
         assert "sk-secret-key-12345" not in repr(settings)
 
 
+class TestOcrSettingsDefaults:
+    """Test OCR settings have correct defaults."""
+
+    def test_default_ocr_enabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        settings = Settings()
+        assert settings.ocr_enabled is True
+
+    def test_default_ocr_language(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        settings = Settings()
+        assert settings.ocr_language == "eng"
+
+    def test_default_ocr_dpi(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        settings = Settings()
+        assert settings.ocr_dpi == 300
+
+
+class TestOcrSettingsOverrides:
+    """Test OCR settings can be overridden via env vars."""
+
+    def test_override_ocr_enabled_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_OCR_ENABLED", "false")
+        settings = Settings()
+        assert settings.ocr_enabled is False
+
+    def test_override_ocr_language(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_OCR_LANGUAGE", "fra")
+        settings = Settings()
+        assert settings.ocr_language == "fra"
+
+    def test_override_ocr_dpi(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_OCR_DPI", "150")
+        settings = Settings()
+        assert settings.ocr_dpi == 150
+
+
 class TestSettingsOverrides:
     """Test that custom env vars override defaults."""
 

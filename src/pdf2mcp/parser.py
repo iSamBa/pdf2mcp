@@ -33,13 +33,13 @@ def _check_tesseract() -> bool:
     return shutil.which("tesseract") is not None
 
 
-def _ocr_page(page: pymupdf.Page, language: str = "eng") -> str:  # type: ignore[valid-type]
+def _ocr_page(page: pymupdf.Page, language: str = "eng", dpi: int = 300) -> str:  # type: ignore[valid-type]
     """Extract text from an image-only page using OCR.
 
     Returns empty string if OCR fails for any reason.
     """
     try:
-        tp = page.get_textpage_ocr(language=language, dpi=300, full=True)  # type: ignore[attr-defined]
+        tp = page.get_textpage_ocr(language=language, dpi=dpi, full=True)  # type: ignore[attr-defined]
         text: str = page.get_text("text", textpage=tp)  # type: ignore[attr-defined]
     except Exception:
         logger.warning(
@@ -60,11 +60,17 @@ def discover_pdfs(docs_dir: Path) -> list[Path]:
     return pdfs
 
 
-def parse_pdf(pdf_path: Path) -> ParsedDocument:
+def parse_pdf(
+    pdf_path: Path,
+    *,
+    ocr_enabled: bool = True,
+    ocr_language: str = "eng",
+    ocr_dpi: int = 300,
+) -> ParsedDocument:
     """Parse a single PDF file into Markdown.
 
     Uses a per-page strategy: text pages are extracted via pymupdf4llm,
-    image-only pages are OCR'd via Tesseract (if available).
+    image-only pages are OCR'd via Tesseract (if available and enabled).
     Computes a SHA-256 hash of the file for change detection.
     """
     logger.info("Parsing: %s", pdf_path.name)
@@ -81,9 +87,19 @@ def parse_pdf(pdf_path: Path) -> ParsedDocument:
                 image_only_pages.add(i)
 
         ocr_page_count = len(image_only_pages)
-        has_tesseract = _check_tesseract() if ocr_page_count > 0 else False
+        can_ocr = (
+            ocr_enabled
+            and ocr_page_count > 0
+            and _check_tesseract()
+        )
 
-        if ocr_page_count > 0 and not has_tesseract:
+        if ocr_page_count > 0 and not ocr_enabled:
+            logger.info(
+                "OCR disabled — skipping %d image-only page(s) in %s",
+                ocr_page_count,
+                pdf_path.name,
+            )
+        elif ocr_page_count > 0 and not can_ocr:
             logger.warning(
                 "Tesseract not found — skipping OCR for %d image-only "
                 "page(s) in %s. Install Tesseract for scanned PDF support.",
@@ -103,16 +119,16 @@ def parse_pdf(pdf_path: Path) -> ParsedDocument:
                 stripped = page_md.strip()
                 if stripped:
                     page_markdowns.append(stripped)
-            elif has_tesseract:
+            elif can_ocr:
                 # Image-only page: OCR via Tesseract
-                ocr_text = _ocr_page(doc[i])
+                ocr_text = _ocr_page(doc[i], language=ocr_language, dpi=ocr_dpi)
                 if ocr_text:
                     page_markdowns.append(ocr_text)
             # If image-only and no tesseract, skip (already warned)
 
         md_text = _PAGE_BREAK.join(page_markdowns)
 
-    if ocr_page_count > 0 and has_tesseract:
+    if ocr_page_count > 0 and can_ocr:
         logger.info(
             "OCR'd %d image-only page(s) in %s",
             ocr_page_count,

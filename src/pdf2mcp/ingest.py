@@ -103,7 +103,12 @@ def _ingest_pdfs(
         if progress is not None:
             progress.stage_start("parsing")
         try:
-            parsed = parse_pdf(pdf_path)
+            parsed = parse_pdf(
+                pdf_path,
+                ocr_enabled=settings.ocr_enabled,
+                ocr_language=settings.ocr_language,
+                ocr_dpi=settings.ocr_dpi,
+            )
         except Exception:
             logger.warning("Failed to parse %s, skipping", filename, exc_info=True)
             if progress is not None:

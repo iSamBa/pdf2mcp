@@ -57,6 +57,11 @@ class ServerSettings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 50
 
+    # OCR
+    ocr_enabled: bool = True
+    ocr_language: str = "eng"
+    ocr_dpi: int = 300
+
     # Search
     default_num_results: int = 5
 
