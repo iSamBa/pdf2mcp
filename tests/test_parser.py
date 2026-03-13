@@ -7,7 +7,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pdf2mcp.models import ParsedDocument
-from pdf2mcp.parser import _page_has_text, discover_pdfs, parse_pdf
+from pdf2mcp.parser import (
+    _check_tesseract,
+    _ocr_page,
+    _page_has_text,
+    discover_pdfs,
+    parse_pdf,
+)
 
 
 class TestDiscoverPdfs:
@@ -89,6 +95,70 @@ class TestPageHasText:
         assert _page_has_text(page, min_length=4) is False
 
 
+class TestCheckTesseract:
+    """Test Tesseract availability detection."""
+
+    @patch("pdf2mcp.parser.shutil.which")
+    def test_returns_true_when_tesseract_found(
+        self, mock_which: MagicMock
+    ) -> None:
+        mock_which.return_value = "/usr/local/bin/tesseract"
+        assert _check_tesseract() is True
+        mock_which.assert_called_once_with("tesseract")
+
+    @patch("pdf2mcp.parser.shutil.which")
+    def test_returns_false_when_tesseract_missing(
+        self, mock_which: MagicMock
+    ) -> None:
+        mock_which.return_value = None
+        assert _check_tesseract() is False
+
+
+class TestOcrPage:
+    """Test OCR text extraction from a page."""
+
+    def test_returns_ocr_text(self) -> None:
+        page = MagicMock()
+        mock_tp = MagicMock()
+        page.get_textpage_ocr.return_value = mock_tp
+        page.get_text.return_value = "  OCR extracted text content  "
+
+        result = _ocr_page(page)
+
+        assert result == "OCR extracted text content"
+        page.get_textpage_ocr.assert_called_once_with(
+            language="eng", dpi=300, full=True
+        )
+        page.get_text.assert_called_once_with("text", textpage=mock_tp)
+
+    def test_returns_empty_for_blank_page(self) -> None:
+        page = MagicMock()
+        page.get_textpage_ocr.return_value = MagicMock()
+        page.get_text.return_value = "   "
+
+        result = _ocr_page(page)
+        assert result == ""
+
+    def test_custom_language(self) -> None:
+        page = MagicMock()
+        page.get_textpage_ocr.return_value = MagicMock()
+        page.get_text.return_value = "Texte français"
+
+        _ocr_page(page, language="fra")
+
+        page.get_textpage_ocr.assert_called_once_with(
+            language="fra", dpi=300, full=True
+        )
+
+    def test_near_threshold_ocr_text(self) -> None:
+        page = MagicMock()
+        page.get_textpage_ocr.return_value = MagicMock()
+        page.get_text.return_value = "short"
+
+        result = _ocr_page(page)
+        assert result == "short"
+
+
 def _make_mock_page(text: str) -> MagicMock:
     """Create a mock pymupdf page with given text."""
     page = MagicMock()
@@ -103,27 +173,29 @@ def _make_mock_doc(pages: list[MagicMock]) -> MagicMock:
     mock_doc.__iter__ = lambda self: iter(pages)
     mock_doc.__enter__ = lambda self: self
     mock_doc.__exit__ = MagicMock(return_value=False)
+    mock_doc.__getitem__ = lambda self, idx: pages[idx]
     return mock_doc
 
 
 class TestParsePdf:
     """Test PDF parsing with mocked dependencies."""
 
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
     def test_returns_parsed_document(
         self,
         mock_pymupdf4llm: MagicMock,
         mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
         tmp_path: Path,
     ) -> None:
         pdf_path = tmp_path / "test.pdf"
-        pdf_content = b"%PDF-1.4 fake content"
-        pdf_path.write_bytes(pdf_content)
+        pdf_path.write_bytes(b"%PDF-1.4 fake content")
 
         mock_pymupdf4llm.to_markdown.return_value = "# Title\n\nContent"
-        pages = [_make_mock_page("This page has enough text for detection.")]
-        mock_pymupdf.open.return_value = _make_mock_doc(pages * 5)
+        pages = [_make_mock_page("This page has enough text.") for _ in range(5)]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
 
         result = parse_pdf(pdf_path)
 
@@ -134,18 +206,20 @@ class TestParsePdf:
         assert len(result.file_hash) == 64
         assert result.ocr_pages == 0
 
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
     def test_file_hash_is_deterministic(
         self,
         mock_pymupdf4llm: MagicMock,
         mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
         tmp_path: Path,
     ) -> None:
         pdf_path = tmp_path / "test.pdf"
         pdf_path.write_bytes(b"same content")
 
-        mock_pymupdf4llm.to_markdown.return_value = ""
+        mock_pymupdf4llm.to_markdown.return_value = "text"
         pages = [_make_mock_page("enough text here")]
         mock_pymupdf.open.return_value = _make_mock_doc(pages)
 
@@ -153,15 +227,17 @@ class TestParsePdf:
         result2 = parse_pdf(pdf_path)
         assert result1.file_hash == result2.file_hash
 
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
     def test_different_content_different_hash(
         self,
         mock_pymupdf4llm: MagicMock,
         mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
         tmp_path: Path,
     ) -> None:
-        mock_pymupdf4llm.to_markdown.return_value = ""
+        mock_pymupdf4llm.to_markdown.return_value = "text"
         pages = [_make_mock_page("enough text here")]
         mock_pymupdf.open.return_value = _make_mock_doc(pages)
 
@@ -182,17 +258,22 @@ class TestParsePdf:
     ) -> None:
         pdf_path = tmp_path / "broken.pdf"
         pdf_path.write_bytes(b"broken")
+
+        pages = [_make_mock_page("enough text here")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
         mock_pymupdf4llm.to_markdown.side_effect = RuntimeError("parse failed")
 
         with pytest.raises(RuntimeError, match="parse failed"):
             parse_pdf(pdf_path)
 
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
     def test_text_pdf_has_zero_ocr_pages(
         self,
         mock_pymupdf4llm: MagicMock,
         mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
         tmp_path: Path,
     ) -> None:
         pdf_path = tmp_path / "text.pdf"
@@ -208,18 +289,19 @@ class TestParsePdf:
         result = parse_pdf(pdf_path)
         assert result.ocr_pages == 0
 
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
-    def test_all_image_only_pages(
+    def test_all_image_only_pages_no_tesseract(
         self,
         mock_pymupdf4llm: MagicMock,
         mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
         tmp_path: Path,
     ) -> None:
         pdf_path = tmp_path / "scanned.pdf"
         pdf_path.write_bytes(b"scanned pdf")
 
-        mock_pymupdf4llm.to_markdown.return_value = ""
         pages = [
             _make_mock_page(""),
             _make_mock_page("   "),
@@ -230,59 +312,102 @@ class TestParsePdf:
         result = parse_pdf(pdf_path)
         assert result.ocr_pages == 3
         assert result.ocr_pages == result.page_count
+        assert result.markdown == ""
+        mock_pymupdf4llm.to_markdown.assert_not_called()
 
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
-    def test_mixed_pdf_counts_image_only_pages(
+    def test_all_image_only_pages_with_tesseract(
         self,
         mock_pymupdf4llm: MagicMock,
         mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        pdf_path = tmp_path / "scanned.pdf"
+        pdf_path.write_bytes(b"scanned pdf")
+
+        pages = [_make_mock_page(""), _make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_ocr_page.side_effect = ["OCR text page 1", "OCR text page 2"]
+
+        result = parse_pdf(pdf_path)
+        assert result.ocr_pages == 2
+        assert "OCR text page 1" in result.markdown
+        assert "OCR text page 2" in result.markdown
+        assert mock_ocr_page.call_count == 2
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_mixed_pdf_combines_text_and_ocr(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
         tmp_path: Path,
     ) -> None:
         pdf_path = tmp_path / "mixed.pdf"
         pdf_path.write_bytes(b"mixed pdf")
 
-        mock_pymupdf4llm.to_markdown.return_value = "# Some content"
         pages = [
             _make_mock_page("This page has real text content here."),
             _make_mock_page(""),  # image-only
             _make_mock_page("Another page with text content in it."),
-            _make_mock_page("  \n  "),  # image-only
         ]
         mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        # pymupdf4llm called with pages=[0, 2] returns joined text
+        mock_pymupdf4llm.to_markdown.return_value = (
+            "Text page 0 content-----Text page 2 content"
+        )
+        mock_ocr_page.return_value = "OCR scanned content"
 
         result = parse_pdf(pdf_path)
-        assert result.page_count == 4
-        assert result.ocr_pages == 2
+        assert result.page_count == 3
+        assert result.ocr_pages == 1
+        assert "Text page 0 content" in result.markdown
+        assert "OCR scanned content" in result.markdown
+        assert "Text page 2 content" in result.markdown
+        # Verify page break markers exist between pages
+        assert "\n-----\n" in result.markdown
 
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
-    def test_logs_warning_for_image_only_pages(
+    def test_logs_warning_when_tesseract_missing(
         self,
         mock_pymupdf4llm: MagicMock,
         mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         pdf_path = tmp_path / "scanned.pdf"
         pdf_path.write_bytes(b"scanned pdf")
 
-        mock_pymupdf4llm.to_markdown.return_value = ""
         pages = [_make_mock_page(""), _make_mock_page(""), _make_mock_page("")]
         mock_pymupdf.open.return_value = _make_mock_doc(pages)
 
         with caplog.at_level(logging.WARNING, logger="pdf2mcp.parser"):
             parse_pdf(pdf_path)
 
+        assert "Tesseract not found" in caplog.text
         assert "3 image-only page(s)" in caplog.text
         assert "scanned.pdf" in caplog.text
 
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
     @patch("pdf2mcp.parser.pymupdf")
     @patch("pdf2mcp.parser.pymupdf4llm")
     def test_no_warning_for_text_only_pdf(
         self,
         mock_pymupdf4llm: MagicMock,
         mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -296,4 +421,103 @@ class TestParsePdf:
         with caplog.at_level(logging.WARNING, logger="pdf2mcp.parser"):
             parse_pdf(pdf_path)
 
+        assert "Tesseract" not in caplog.text
         assert "image-only" not in caplog.text
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_graceful_degradation_mixed_pdf_no_tesseract(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Text pages still extracted when Tesseract is missing."""
+        pdf_path = tmp_path / "mixed.pdf"
+        pdf_path.write_bytes(b"mixed pdf")
+
+        pages = [
+            _make_mock_page("This page has real text content here."),
+            _make_mock_page(""),  # image-only — will be skipped
+        ]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_pymupdf4llm.to_markdown.return_value = "Text page content"
+
+        result = parse_pdf(pdf_path)
+        assert result.ocr_pages == 1
+        assert "Text page content" in result.markdown
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_ocr_empty_result_excluded(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """OCR page that produces empty text is excluded from markdown."""
+        pdf_path = tmp_path / "blank.pdf"
+        pdf_path.write_bytes(b"blank pdf")
+
+        pages = [_make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_ocr_page.return_value = ""
+
+        result = parse_pdf(pdf_path)
+        assert result.markdown == ""
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=True)
+    @patch("pdf2mcp.parser._ocr_page")
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_logs_info_after_ocr(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        mock_ocr_page: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        pdf_path = tmp_path / "scanned.pdf"
+        pdf_path.write_bytes(b"scanned pdf")
+
+        pages = [_make_mock_page("")]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_ocr_page.return_value = "OCR text"
+
+        with caplog.at_level(logging.INFO, logger="pdf2mcp.parser"):
+            parse_pdf(pdf_path)
+
+        assert "OCR'd 1 image-only page(s)" in caplog.text
+
+    @patch("pdf2mcp.parser._check_tesseract", return_value=False)
+    @patch("pdf2mcp.parser.pymupdf")
+    @patch("pdf2mcp.parser.pymupdf4llm")
+    def test_page_breaks_between_text_pages(
+        self,
+        mock_pymupdf4llm: MagicMock,
+        mock_pymupdf: MagicMock,
+        _mock_tess: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        pdf_path = tmp_path / "multipage.pdf"
+        pdf_path.write_bytes(b"multipage pdf")
+
+        pages = [
+            _make_mock_page("Page 1 has enough text content here."),
+            _make_mock_page("Page 2 has enough text content here."),
+        ]
+        mock_pymupdf.open.return_value = _make_mock_doc(pages)
+        mock_pymupdf4llm.to_markdown.return_value = "Page 1 md-----Page 2 md"
+
+        result = parse_pdf(pdf_path)
+        assert "\n-----\n" in result.markdown
+        assert "Page 1 md" in result.markdown
+        assert "Page 2 md" in result.markdown

@@ -1,9 +1,10 @@
-"""PDF to Markdown extraction using pymupdf4llm."""
+"""PDF to Markdown extraction using pymupdf4llm with OCR fallback."""
 
 from __future__ import annotations
 
 import hashlib
 import logging
+import shutil
 from pathlib import Path
 
 import pymupdf
@@ -16,12 +17,25 @@ __all__ = ["discover_pdfs", "parse_pdf"]
 logger = logging.getLogger(__name__)
 
 _MIN_TEXT_LENGTH = 10
+_PAGE_BREAK = "\n-----\n\n"
 
 
-def _page_has_text(page: "pymupdf.Page", min_length: int = _MIN_TEXT_LENGTH) -> bool:  # type: ignore[valid-type]
+def _page_has_text(page: pymupdf.Page, min_length: int = _MIN_TEXT_LENGTH) -> bool:  # type: ignore[valid-type]
     """Check whether a PDF page has extractable text content."""
     text = page.get_text().strip()  # type: ignore[attr-defined]
     return len(text) >= min_length
+
+
+def _check_tesseract() -> bool:
+    """Check if Tesseract OCR is available on the system."""
+    return shutil.which("tesseract") is not None
+
+
+def _ocr_page(page: pymupdf.Page, language: str = "eng") -> str:  # type: ignore[valid-type]
+    """Extract text from an image-only page using OCR."""
+    tp = page.get_textpage_ocr(language=language, dpi=300, full=True)  # type: ignore[attr-defined]
+    text: str = page.get_text("text", textpage=tp)  # type: ignore[attr-defined]
+    return text.strip()
 
 
 def discover_pdfs(docs_dir: Path) -> list[Path]:
@@ -37,25 +51,68 @@ def discover_pdfs(docs_dir: Path) -> list[Path]:
 def parse_pdf(pdf_path: Path) -> ParsedDocument:
     """Parse a single PDF file into Markdown.
 
-    Uses pymupdf4llm for Markdown conversion and pymupdf for page count.
+    Uses a per-page strategy: text pages are extracted via pymupdf4llm,
+    image-only pages are OCR'd via Tesseract (if available).
     Computes a SHA-256 hash of the file for change detection.
-    Detects image-only pages that may need OCR in later processing.
     """
     logger.info("Parsing: %s", pdf_path.name)
 
-    md_text = pymupdf4llm.to_markdown(str(pdf_path))
     file_hash = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
 
-    ocr_page_count = 0
     with pymupdf.open(str(pdf_path)) as doc:  # type: ignore[no-untyped-call]
         page_count: int = len(doc)
-        for page in doc:
-            if not _page_has_text(page):
-                ocr_page_count += 1
 
-    if ocr_page_count > 0:
-        logger.warning(
-            "Found %d image-only page(s) in %s", ocr_page_count, pdf_path.name
+        # Classify pages
+        image_only_pages: list[int] = []
+        for i, page in enumerate(doc):
+            if not _page_has_text(page):
+                image_only_pages.append(i)
+
+        ocr_page_count = len(image_only_pages)
+        has_tesseract = _check_tesseract() if ocr_page_count > 0 else False
+
+        if ocr_page_count > 0 and not has_tesseract:
+            logger.warning(
+                "Tesseract not found — skipping OCR for %d image-only "
+                "page(s) in %s. Install Tesseract for scanned PDF support.",
+                ocr_page_count,
+                pdf_path.name,
+            )
+
+        # Build markdown page-by-page
+        page_markdowns: list[str] = []
+        text_pages = [i for i in range(page_count) if i not in image_only_pages]
+
+        # Extract text pages via pymupdf4llm (batch for efficiency)
+        text_page_md: dict[int, str] = {}
+        if text_pages:
+            full_md = pymupdf4llm.to_markdown(
+                doc, pages=text_pages
+            )
+            # pymupdf4llm joins pages with page break markers
+            # Split them back to map to individual pages
+            parts = full_md.split("-----")
+            for idx, part in enumerate(parts):
+                if idx < len(text_pages):
+                    text_page_md[text_pages[idx]] = part.strip()
+
+        # Assemble final markdown in page order
+        for i in range(page_count):
+            if i in text_page_md:
+                page_markdowns.append(text_page_md[i])
+            elif i in image_only_pages and has_tesseract:
+                ocr_text = _ocr_page(doc[i])
+                if ocr_text:
+                    page_markdowns.append(ocr_text)
+            # If image-only and no tesseract, skip (already warned)
+
+        md_text = _PAGE_BREAK.join(page_markdowns)
+
+    if ocr_page_count > 0 and has_tesseract:
+        logger.info(
+            "OCR'd %d image-only page(s) in %s",
+            ocr_page_count,
+            pdf_path.name,
         )
 
     return ParsedDocument(
