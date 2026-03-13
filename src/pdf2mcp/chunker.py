@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import logging
 import re
 
@@ -97,13 +98,10 @@ def _resolve_page_numbers(start: int, length: int, page_breaks: list[int]) -> li
 
     end = start + length
 
-    start_page = 1
-    end_page = 1
-    for i, bp in enumerate(page_breaks):
-        if bp <= start:
-            start_page = i + 2
-        if bp <= end:
-            end_page = i + 2
+    # bisect_right gives the number of page breaks <= position,
+    # so the page number is that count + 1.
+    start_page = bisect.bisect_right(page_breaks, start) + 1
+    end_page = bisect.bisect_right(page_breaks, end) + 1
 
     return list(range(start_page, end_page + 1))
 
@@ -270,9 +268,7 @@ def _is_atomic_block(text: str) -> bool:
         return True
     # All non-empty lines are table rows
     lines = [line for line in stripped.split("\n") if line.strip()]
-    if lines and all(_TABLE_ROW_RE.match(line.strip()) for line in lines):
-        return True
-    return False
+    return bool(lines) and all(_TABLE_ROW_RE.match(line.strip()) for line in lines)
 
 
 def _recursive_split(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:

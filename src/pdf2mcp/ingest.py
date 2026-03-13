@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+
+import lancedb  # type: ignore[import-untyped]
 
 from pdf2mcp.chunker import chunk_markdown
-from pdf2mcp.config import ServerSettings, get_settings
+from pdf2mcp.config import (
+    EMBEDDING_BATCH_SIZE,
+    EMBEDDING_DIMENSIONS,
+    ServerSettings,
+    get_settings,
+)
 from pdf2mcp.embeddings import compute_batch_count, embed_texts
 from pdf2mcp.parser import discover_pdfs, parse_pdf
 from pdf2mcp.progress import IngestionProgress
@@ -78,10 +86,10 @@ def run_ingestion(
 
 
 def _ingest_pdfs(
-    pdfs: list,
-    db: object,
+    pdfs: list[Path],
+    db: lancedb.DBConnection,
     settings: ServerSettings,
-    ingested: dict,
+    ingested: dict[str, str],
     force: bool,
     progress: IngestionProgress | None,
 ) -> tuple[int, int]:
@@ -99,17 +107,39 @@ def _ingest_pdfs(
         if progress is not None:
             progress.document_start(filename)
 
-        # Parse
+        # Parse (includes OCR if needed)
         if progress is not None:
             progress.stage_start("parsing")
+
+        had_ocr = False
+
+        def _on_ocr_start(total: int) -> None:
+            nonlocal had_ocr
+            had_ocr = True
+            if progress is not None:
+                progress.stage_complete()  # Complete parsing stage
+                progress.set_ocr_pages(total)  # Start OCR stage
+
+        def _on_ocr_page() -> None:
+            if progress is not None:
+                progress.advance_ocr()
+
         try:
-            parsed = parse_pdf(pdf_path)
-        except Exception:
+            parsed = parse_pdf(
+                pdf_path,
+                ocr_enabled=settings.ocr_enabled,
+                ocr_language=settings.ocr_language,
+                ocr_dpi=settings.ocr_dpi,
+                on_ocr_start=_on_ocr_start if progress is not None else None,
+                on_ocr_page=_on_ocr_page if progress is not None else None,
+            )
+        except Exception:  # noqa: BLE001
             logger.warning("Failed to parse %s, skipping", filename, exc_info=True)
             if progress is not None:
+                progress.stage_complete()
                 progress.document_complete()
             continue
-        if progress is not None:
+        if progress is not None and not had_ocr:
             progress.stage_complete()
 
         # Check if already ingested and unchanged
@@ -149,7 +179,7 @@ def _ingest_pdfs(
 
         # Embed — update progress total now that we know the batch count
         texts = [chunk.text for chunk in chunks]
-        num_batches = compute_batch_count(len(texts), settings.embedding_batch_size)
+        num_batches = compute_batch_count(len(texts), EMBEDDING_BATCH_SIZE)
 
         if progress is not None:
             progress.set_embedding_batches(num_batches)
@@ -163,7 +193,7 @@ def _ingest_pdfs(
                 if progress is not None
                 else None,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning(
                 "Embedding failed for %s, skipping",
                 filename,
@@ -177,9 +207,9 @@ def _ingest_pdfs(
         if progress is not None:
             progress.stage_start("storing")
         try:
-            upsert_chunks(db, chunks, embeddings, settings.embedding_dimensions)
+            upsert_chunks(db, chunks, embeddings, EMBEDDING_DIMENSIONS)
             record_ingestion(db, filename, parsed.file_hash, len(chunks))
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.warning(
                 "Storing failed for %s, skipping",
                 filename,

@@ -6,17 +6,18 @@ import logging
 from typing import Any
 
 import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.compute as pc
+import pyarrow.compute as pc  # type: ignore[import-untyped]
 from pydantic import BaseModel
 
 from pdf2mcp.config import ServerSettings
-from pdf2mcp.embeddings import embed_query, embed_texts
+from pdf2mcp.embeddings import embed_query
 from pdf2mcp.store import (
     DOCUMENTS_TABLE,
     METADATA_TABLE,
-    _escape_filter_value,
+    escape_filter_value,
     get_db,
     get_documents_table,
+    table_exists,
 )
 
 __all__ = [
@@ -48,6 +49,33 @@ class SearchResult(BaseModel):
 def _distance_to_similarity(distance: float) -> float:
     """Convert L2 distance to a 0-1 similarity score (higher = more relevant)."""
     return 1.0 / (1.0 + distance)
+
+
+def _rows_to_results(rows: list[dict[str, Any]]) -> list[SearchResult]:
+    """Convert raw LanceDB rows to SearchResult objects."""
+    return [
+        SearchResult(
+            text=row["text"],
+            score=_distance_to_similarity(row.get("_distance", 0.0)),
+            source_file=row["source_file"],
+            page_numbers=row.get("page_numbers", []),
+            section_title=row.get("section_title", ""),
+        )
+        for row in rows
+    ]
+
+
+def _arrow_to_row_dicts(
+    arrow_table: pa.Table, sort_by: str = "chunk_index"
+) -> list[dict[str, Any]]:
+    """Convert an Arrow table to a list of row dicts, sorted by the given column."""
+    sort_indices = pc.sort_indices(arrow_table, sort_keys=[(sort_by, "ascending")])
+    sorted_table = arrow_table.take(sort_indices)
+    col_dict = sorted_table.to_pydict()
+    return [
+        {col: col_dict[col][i] for col in col_dict}
+        for i in range(sorted_table.num_rows)
+    ]
 
 
 def search_documents(
@@ -84,21 +112,15 @@ def search_documents(
     # Search LanceDB using cached table handle
     table = get_documents_table(settings)
     if table is None:
-        logger.warning("No documents table found or table is empty. Run ingestion first.")
+        logger.warning(
+            "No documents table found or table is empty."
+            " Run ingestion first."
+        )
         return []
 
     rows: list[dict[str, Any]] = table.search(query_vector).limit(num_results).to_list()
 
-    return [
-        SearchResult(
-            text=row["text"],
-            score=_distance_to_similarity(row.get("_distance", 0.0)),
-            source_file=row["source_file"],
-            page_numbers=row.get("page_numbers", []),
-            section_title=row.get("section_title", ""),
-        )
-        for row in rows
-    ]
+    return _rows_to_results(rows)
 
 
 def format_results(results: list[SearchResult]) -> str:
@@ -135,7 +157,7 @@ def list_ingested_documents(settings: ServerSettings) -> list[dict[str, Any]]:
         List of dicts with keys: filename, file_hash, chunk_count.
     """
     db = get_db(settings)
-    if METADATA_TABLE not in db.list_tables().tables:
+    if not table_exists(db, METADATA_TABLE):
         return []
 
     table = db.open_table(METADATA_TABLE)
@@ -149,7 +171,7 @@ def list_ingested_documents(settings: ServerSettings) -> list[dict[str, Any]]:
 
     return [
         {"filename": fn, "file_hash": fh, "chunk_count": cc}
-        for fn, fh, cc in zip(filenames, hashes, counts)
+        for fn, fh, cc in zip(filenames, hashes, counts, strict=True)
     ]
 
 
@@ -160,11 +182,11 @@ def get_document_sections(filename: str, settings: ServerSettings) -> list[str]:
         Ordered list of unique section titles (preserving first-occurrence order).
     """
     db = get_db(settings)
-    if DOCUMENTS_TABLE not in db.list_tables().tables:
+    if not table_exists(db, DOCUMENTS_TABLE):
         return []
 
     table = db.open_table(DOCUMENTS_TABLE)
-    escaped = _escape_filter_value(filename)
+    escaped = escape_filter_value(filename)
     arrow_table = (
         table.search()
         .where(f"source_file = '{escaped}'")
@@ -179,7 +201,7 @@ def get_document_sections(filename: str, settings: ServerSettings) -> list[str]:
     indices = arrow_table.column("chunk_index").to_pylist()
 
     # Sort by chunk_index to preserve document order, then deduplicate
-    paired = sorted(zip(indices, titles))
+    paired = sorted(zip(indices, titles, strict=True))
     seen: set[str] = set()
     sections: list[str] = []
     for _, title in paired:
@@ -222,10 +244,13 @@ def search_in_document(
     # Use cached table handle
     table = get_documents_table(settings)
     if table is None:
-        logger.warning("No documents table found or table is empty. Run ingestion first.")
+        logger.warning(
+            "No documents table found or table is empty."
+            " Run ingestion first."
+        )
         return []
 
-    escaped = _escape_filter_value(filename)
+    escaped = escape_filter_value(filename)
     rows: list[dict[str, Any]] = (
         table.search(query_vector)
         .where(f"source_file = '{escaped}'")
@@ -233,16 +258,7 @@ def search_in_document(
         .to_list()
     )
 
-    return [
-        SearchResult(
-            text=row["text"],
-            score=_distance_to_similarity(row.get("_distance", 0.0)),
-            source_file=row["source_file"],
-            page_numbers=row.get("page_numbers", []),
-            section_title=row.get("section_title", ""),
-        )
-        for row in rows
-    ]
+    return _rows_to_results(rows)
 
 
 def get_page_chunks(
@@ -266,11 +282,11 @@ def get_page_chunks(
         section_title, chunk_index.
     """
     db = get_db(settings)
-    if DOCUMENTS_TABLE not in db.list_tables().tables:
+    if not table_exists(db, DOCUMENTS_TABLE):
         return []
 
     table = db.open_table(DOCUMENTS_TABLE)
-    escaped = _escape_filter_value(filename)
+    escaped = escape_filter_value(filename)
     arrow_table = (
         table.search()
         .where(f"source_file = '{escaped}'")
@@ -292,16 +308,7 @@ def get_page_chunks(
     if filtered.num_rows == 0:
         return []
 
-    # Sort by chunk_index using Arrow compute
-    sort_indices = pc.sort_indices(filtered, sort_keys=[("chunk_index", "ascending")])
-    filtered = filtered.take(sort_indices)
-
-    # Convert columnar dict to list of row dicts
-    col_dict = filtered.to_pydict()
-    return [
-        {col: col_dict[col][i] for col in col_dict}
-        for i in range(filtered.num_rows)
-    ]
+    return _arrow_to_row_dicts(filtered)
 
 
 def get_section_chunks(
@@ -324,12 +331,12 @@ def get_section_chunks(
         section_title, chunk_index.
     """
     db = get_db(settings)
-    if DOCUMENTS_TABLE not in db.list_tables().tables:
+    if not table_exists(db, DOCUMENTS_TABLE):
         return []
 
     table = db.open_table(DOCUMENTS_TABLE)
-    escaped_file = _escape_filter_value(filename)
-    escaped_section = _escape_filter_value(section_title)
+    escaped_file = escape_filter_value(filename)
+    escaped_section = escape_filter_value(section_title)
     arrow_table = (
         table.search()
         .where(
@@ -342,21 +349,7 @@ def get_section_chunks(
     if arrow_table.num_rows == 0:
         return []
 
-    rows = arrow_table.to_pydict()
-    results = []
-    for i in range(arrow_table.num_rows):
-        results.append(
-            {
-                "text": rows["text"][i],
-                "source_file": rows["source_file"][i],
-                "page_numbers": rows["page_numbers"][i],
-                "section_title": rows["section_title"][i],
-                "chunk_index": rows["chunk_index"][i],
-            }
-        )
-
-    results.sort(key=lambda r: r["chunk_index"])
-    return results
+    return _arrow_to_row_dicts(arrow_table)
 
 
 def format_page_chunks(chunks: list[dict[str, Any]], filename: str, page: int) -> str:

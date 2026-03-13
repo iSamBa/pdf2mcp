@@ -7,12 +7,12 @@ import logging
 from collections.abc import Callable
 from functools import lru_cache
 
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
-from pdf2mcp.config import ServerSettings
+from pdf2mcp.config import EMBEDDING_BATCH_SIZE, ServerSettings
 
-__all__ = ["embed_texts"]
+__all__ = ["compute_batch_count", "embed_query", "embed_texts"]
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def embed_query(query: str, settings: ServerSettings) -> list[float] | None:
     identical queries.
     """
     api_key = settings.openai_api_key.get_secret_value()
-    client = _get_client(api_key, settings.openai_base_url)
+    _get_client(api_key, settings.openai_base_url)
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:16]
 
     try:
@@ -62,7 +62,7 @@ def embed_query(query: str, settings: ServerSettings) -> list[float] | None:
             query, settings.embedding_model, key_hash, settings.openai_base_url
         )
         return list(embedding)
-    except Exception:
+    except OpenAIError:
         logger.warning("Failed to embed query", exc_info=True)
         return None
 
@@ -92,9 +92,9 @@ def embed_texts(
 ) -> list[list[float]]:
     """Embed a list of texts using OpenAI API with batching.
 
-    Splits texts into batches of ``settings.embedding_batch_size`` and
-    calls the OpenAI embeddings endpoint for each batch. Failed calls
-    are retried up to 6 times with exponential backoff.
+    Splits texts into batches of ``EMBEDDING_BATCH_SIZE`` and calls the
+    OpenAI embeddings endpoint for each batch. Failed calls are retried
+    up to 6 times with exponential backoff.
 
     Args:
         texts: The texts to embed.
@@ -110,7 +110,7 @@ def embed_texts(
         settings.openai_base_url,
     )
     all_embeddings: list[list[float]] = []
-    batch_size = settings.embedding_batch_size
+    batch_size = EMBEDDING_BATCH_SIZE
     total_batches = compute_batch_count(len(texts), batch_size)
 
     for batch_num, i in enumerate(range(0, len(texts), batch_size), start=1):

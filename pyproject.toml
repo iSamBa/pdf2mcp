@@ -1,6 +1,6 @@
 [project]
 name = "pdf2mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "Turn any PDF folder into a searchable MCP server"
 readme = "README.md"
 license = { text = "MIT" }
@@ -59,11 +59,15 @@ line-length = 88
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "BLE"]
 
 [tool.mypy]
 python_version = "3.10"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["pymupdf.*", "pymupdf4llm.*", "lancedb.*", "pyarrow.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

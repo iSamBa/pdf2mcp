@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -11,6 +10,8 @@ from rich.progress import (
     BarColumn,
     Progress,
     SpinnerColumn,
+    Task,
+    TaskID,
     TaskProgressColumn,
     TextColumn,
     TimeRemainingColumn,
@@ -21,6 +22,7 @@ __all__ = ["IngestionProgress"]
 
 _STAGE_STYLES = {
     "parsing": "cyan",
+    "OCR": "bright_cyan",
     "chunking": "yellow",
     "embedding": "magenta",
     "storing": "green",
@@ -35,8 +37,8 @@ class _StageColumn(TextColumn):
     def __init__(self) -> None:
         super().__init__("")
 
-    def render(self, task: object) -> Text:  # type: ignore[override]
-        stage: str = task.fields.get("stage", "")  # type: ignore[union-attr]
+    def render(self, task: Task) -> Text:
+        stage: str = task.fields.get("stage", "")
         if not stage:
             return Text("")
         style = _STAGE_STYLES.get(stage, "white")
@@ -74,6 +76,7 @@ class IngestionProgress:
 
     def __init__(self, total_docs: int) -> None:
         self._total_docs = total_docs
+        self._ocr_pages = 0
         self._console = Console(stderr=True)
         self._progress = Progress(
             SpinnerColumn(),
@@ -84,8 +87,8 @@ class IngestionProgress:
             TimeRemainingColumn(),
             console=self._console,
         )
-        self._overall_task = None
-        self._doc_task = None
+        self._overall_task: TaskID | None = None
+        self._doc_task: TaskID | None = None
         self._saved_handlers: list[logging.Handler] = []
 
     def __enter__(self) -> IngestionProgress:
@@ -105,9 +108,10 @@ class IngestionProgress:
         root.addHandler(rich_handler)
 
         self._progress.__enter__()
-        self._overall_task = self._progress.add_task(
-            "Ingesting documents", total=self._total_docs, stage=""
-        )
+        if self._total_docs > 1:
+            self._overall_task = self._progress.add_task(
+                "Ingesting documents", total=self._total_docs, stage=""
+            )
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -123,7 +127,8 @@ class IngestionProgress:
     def document_start(self, filename: str) -> None:
         """Signal start of processing a new document."""
         # Start with base steps; total is adjusted once we know the
-        # number of embedding batches.
+        # number of embedding batches and OCR pages.
+        self._ocr_pages = 0
         self._doc_task = self._progress.add_task(
             f"  {filename}", total=self._BASE_STEPS, stage=""
         )
@@ -138,15 +143,34 @@ class IngestionProgress:
         if self._doc_task is not None:
             self._progress.advance(self._doc_task)
 
+    def set_ocr_pages(self, total: int) -> None:
+        """Set the expected number of OCR pages and adjust step total.
+
+        Call this after parsing detects image-only pages, before OCR starts.
+        """
+        self._ocr_pages = total
+        if self._doc_task is not None and total > 0:
+            self._progress.update(
+                self._doc_task,
+                total=self._BASE_STEPS + total,
+                stage="OCR",
+            )
+
+    def advance_ocr(self) -> None:
+        """Advance progress by one OCR'd page."""
+        if self._doc_task is not None:
+            self._progress.advance(self._doc_task)
+
     def set_embedding_batches(self, num_batches: int) -> None:
         """Update the document total to reflect the real embedding work.
 
         Call this after chunking, once the number of embedding batches
-        is known.  The total becomes: base_steps + num_batches.
+        is known.  The total becomes: base_steps + ocr_pages + num_batches.
         """
         if self._doc_task is not None:
             self._progress.update(
-                self._doc_task, total=self._BASE_STEPS + num_batches
+                self._doc_task,
+                total=self._BASE_STEPS + self._ocr_pages + num_batches,
             )
 
     def advance_embedding(self) -> None:

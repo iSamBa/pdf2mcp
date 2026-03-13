@@ -21,7 +21,12 @@ from pdf2mcp.search import (
     search_documents,
     search_in_document,
 )
-from pdf2mcp.store import get_db, invalidate_table_cache, record_ingestion, upsert_chunks
+from pdf2mcp.store import (
+    get_db,
+    invalidate_table_cache,
+    record_ingestion,
+    upsert_chunks,
+)
 
 # ── Fixtures ────────────────────────────────────────────────────────
 
@@ -34,7 +39,6 @@ def settings(tmp_path: Path) -> MagicMock:
     s.data_dir.mkdir()
     s.openai_api_key.get_secret_value.return_value = "sk-test"
     s.embedding_model = "text-embedding-3-small"
-    s.embedding_dimensions = 8
     s.default_num_results = 5
     return s
 
@@ -400,7 +404,9 @@ class TestSearchInDocument:
         _populate_db(db, source_file="manual.pdf", count=3)
         _populate_db(db, source_file="guide.pdf", count=3)
 
-        results = search_in_document("test query", "manual.pdf", settings, num_results=5)
+        results = search_in_document(
+            "test query", "manual.pdf", settings, num_results=5
+        )
 
         assert len(results) > 0
         for result in results:

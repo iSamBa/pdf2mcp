@@ -13,6 +13,8 @@ from pdf2mcp.config import ServerSettings
 from pdf2mcp.models import DocumentChunk
 
 __all__ = [
+    "escape_filter_value",
+    "table_exists",
     "get_db",
     "get_documents_table",
     "upsert_chunks",
@@ -32,7 +34,7 @@ METADATA_TABLE = "ingestion_metadata"
 _MIN_ROWS_FOR_INDEX = 256
 
 
-def _escape_filter_value(value: str) -> str:
+def escape_filter_value(value: str) -> str:
     """Escape a string value for use in a LanceDB filter predicate.
 
     LanceDB uses SQL-style escaping: single quotes are doubled (``''``).
@@ -40,7 +42,7 @@ def _escape_filter_value(value: str) -> str:
     return value.replace("'", "''")
 
 
-def _table_exists(db: lancedb.DBConnection, name: str) -> bool:
+def table_exists(db: lancedb.DBConnection, name: str) -> bool:
     """Check if a table exists in the database."""
     return name in db.list_tables().tables
 
@@ -73,7 +75,7 @@ def get_documents_table(settings: ServerSettings) -> lancedb.table.Table | None:
     if cache_key in _table_cache:
         return _table_cache[cache_key]
 
-    if not _table_exists(db, DOCUMENTS_TABLE):
+    if not table_exists(db, DOCUMENTS_TABLE):
         return None
 
     table = db.open_table(DOCUMENTS_TABLE)
@@ -121,7 +123,7 @@ def _ensure_documents_table(
     db: lancedb.DBConnection, dimensions: int
 ) -> lancedb.table.Table:
     """Create the documents table if it doesn't exist."""
-    if _table_exists(db, DOCUMENTS_TABLE):
+    if table_exists(db, DOCUMENTS_TABLE):
         return db.open_table(DOCUMENTS_TABLE)
     schema = _get_documents_schema(dimensions)
     return db.create_table(DOCUMENTS_TABLE, schema=schema)
@@ -131,7 +133,7 @@ def _ensure_metadata_table(
     db: lancedb.DBConnection,
 ) -> lancedb.table.Table:
     """Create the metadata table if it doesn't exist."""
-    if _table_exists(db, METADATA_TABLE):
+    if table_exists(db, METADATA_TABLE):
         return db.open_table(METADATA_TABLE)
     schema = _get_metadata_schema()
     return db.create_table(METADATA_TABLE, schema=schema)
@@ -156,7 +158,7 @@ def upsert_chunks(
     table = _ensure_documents_table(db, dimensions)
     records: list[dict[str, Any]] = []
 
-    for chunk, embedding in zip(chunks, embeddings):
+    for chunk, embedding in zip(chunks, embeddings, strict=True):
         records.append(
             {
                 "text": chunk.text,
@@ -175,17 +177,17 @@ def upsert_chunks(
 
 def delete_by_source(db: lancedb.DBConnection, source_file: str) -> None:
     """Delete all chunks from a specific source file."""
-    if not _table_exists(db, DOCUMENTS_TABLE):
+    if not table_exists(db, DOCUMENTS_TABLE):
         return
     table = db.open_table(DOCUMENTS_TABLE)
-    escaped = _escape_filter_value(source_file)
+    escaped = escape_filter_value(source_file)
     table.delete(f"source_file = '{escaped}'")
     logger.info("Deleted chunks for source: %s", source_file)
 
 
 def get_ingested_files(db: lancedb.DBConnection) -> dict[str, str]:
     """Return a mapping of filename to file_hash for all ingested files."""
-    if not _table_exists(db, METADATA_TABLE):
+    if not table_exists(db, METADATA_TABLE):
         return {}
     table = db.open_table(METADATA_TABLE)
     if table.count_rows() == 0:
@@ -193,7 +195,7 @@ def get_ingested_files(db: lancedb.DBConnection) -> dict[str, str]:
     arrow_table = table.to_arrow()
     filenames = arrow_table.column("filename").to_pylist()
     hashes = arrow_table.column("file_hash").to_pylist()
-    return dict(zip(filenames, hashes))
+    return dict(zip(filenames, hashes, strict=True))
 
 
 def record_ingestion(
@@ -207,10 +209,10 @@ def record_ingestion(
 
     # Delete existing record if present
     try:
-        escaped = _escape_filter_value(filename)
+        escaped = escape_filter_value(filename)
         table.delete(f"filename = '{escaped}'")
     except Exception:  # noqa: BLE001
-        pass  # Table may be empty or record may not exist
+        logger.debug("No existing record to delete for %s", filename, exc_info=True)
 
     table.add(
         [
@@ -227,7 +229,7 @@ def record_ingestion(
 def clear_database(db: lancedb.DBConnection) -> None:
     """Drop all tables for a clean re-ingestion."""
     for name in [DOCUMENTS_TABLE, METADATA_TABLE]:
-        if _table_exists(db, name):
+        if table_exists(db, name):
             db.drop_table(name)
     invalidate_table_cache()
     logger.info("Database cleared")
@@ -239,7 +241,7 @@ def create_vector_index(db: lancedb.DBConnection) -> None:
     This speeds up vector search from brute-force kNN to approximate NN.
     Requires at least ``_MIN_ROWS_FOR_INDEX`` rows to be effective.
     """
-    if not _table_exists(db, DOCUMENTS_TABLE):
+    if not table_exists(db, DOCUMENTS_TABLE):
         return
 
     table = db.open_table(DOCUMENTS_TABLE)
@@ -256,5 +258,5 @@ def create_vector_index(db: lancedb.DBConnection) -> None:
     try:
         table.create_index(metric="l2", index_type="IVF_PQ", replace=True)
         logger.info("Created vector index (IVF_PQ) on %d rows", row_count)
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("Failed to create vector index", exc_info=True)

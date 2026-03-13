@@ -42,6 +42,37 @@ To update after pulling new changes:
 uv tool install --force ./pdf2mcp
 ```
 
+### Optional: Tesseract OCR
+
+Tesseract is only needed if you want to extract text from **scanned or image-only PDFs**. Without it, pdf2mcp works fine for text-based PDFs — image-only pages are simply skipped with a warning.
+
+**macOS:**
+
+```bash
+brew install tesseract
+```
+
+**Ubuntu / Debian:**
+
+```bash
+sudo apt-get install tesseract-ocr
+```
+
+**Windows:**
+
+Download the installer from [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki).
+
+**Additional languages:** install language packs for non-English PDFs:
+
+```bash
+# Example: French and German
+sudo apt-get install tesseract-ocr-fra tesseract-ocr-deu
+# or on macOS
+brew install tesseract-lang
+```
+
+Then set `PDF2MCP_OCR_LANGUAGE` to the appropriate language code (e.g., `fra`, `deu`).
+
 ### Verify
 
 ```bash
@@ -76,6 +107,15 @@ pdf2mcp separates **server** and **client** concerns:
 
 The default transport is `streamable-http`. The server listens on `http://127.0.0.1:8000/mcp` and shuts down gracefully on SIGINT/SIGTERM.
 
+## OCR / Scanned PDF Support
+
+pdf2mcp automatically detects image-only pages in PDFs and falls back to Tesseract OCR when available:
+
+- **Per-page strategy:** text pages are extracted via pymupdf4llm; image-only pages are OCR'd via Tesseract.
+- **Automatic detection:** each page is checked for extractable text (via `_page_has_text`) and image dominance (via `_is_image_dominant`). Pages without sufficient text are classified as image-only.
+- **Graceful degradation:** if Tesseract is not installed or OCR is disabled, image-only pages are skipped with a warning — text-based pages are still extracted normally.
+- **Configuration:** use `PDF2MCP_OCR_ENABLED`, `PDF2MCP_OCR_LANGUAGE`, and `PDF2MCP_OCR_DPI` environment variables (see [Environment Variables](#environment-variables)).
+
 ## Commands
 
 | Command | Description |
@@ -91,6 +131,13 @@ The default transport is `streamable-http`. The server listens on `http://127.0.
 # Override docs directory
 pdf2mcp ingest --docs-dir ./my-pdfs
 pdf2mcp serve --docs-dir ./my-pdfs
+
+# Force re-ingestion (clears DB and re-ingests all documents)
+pdf2mcp ingest --force
+
+# Enable debug logging
+pdf2mcp ingest -v
+pdf2mcp serve --verbose
 
 # Use stdio transport (for clients that spawn the server)
 pdf2mcp serve --transport stdio
@@ -161,16 +208,9 @@ These configure the server process. MCP clients never need these.
 | `PDF2MCP_SERVER_TRANSPORT` | `streamable-http` | Transport protocol |
 | `PDF2MCP_SERVER_HOST` | `127.0.0.1` | Host to bind to |
 | `PDF2MCP_SERVER_PORT` | `8000` | Port to bind to |
-
-### Client settings (`PDF2MCP_CLIENT_*`)
-
-These configure how a client connects to the server. No secrets needed.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PDF2MCP_CLIENT_SERVER_NAME` | `pdf-docs` | Server name in client config |
-| `PDF2MCP_CLIENT_SERVER_URL` | `http://127.0.0.1:8000/mcp` | Server URL |
-| `PDF2MCP_CLIENT_TRANSPORT` | `streamable-http` | Transport protocol |
+| `PDF2MCP_OCR_ENABLED` | `true` | Enable OCR for scanned/image-only pages |
+| `PDF2MCP_OCR_LANGUAGE` | `eng` | Tesseract language code |
+| `PDF2MCP_OCR_DPI` | `300` | DPI for OCR rendering |
 
 ## MCP Tools
 
@@ -191,6 +231,12 @@ The server exposes six tools:
 2. **`get_sections`** — browse a document's structure
 3. **`read_section`** or **`read_page`** — read specific content
 4. **`search_docs`** or **`search_in_doc`** — find information by query
+
+## MCP Resources
+
+| Resource URI | Description |
+|--------------|-------------|
+| `docs://status` | Server status: document count, chunk count, embedding model, and docs directory |
 
 ## Development
 

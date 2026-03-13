@@ -26,6 +26,7 @@ htmlcov/
 # Project-specific
 data/
 docs/*.pdf
+backlog/
 
 # IDE
 .vscode/

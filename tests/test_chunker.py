@@ -81,7 +81,7 @@ class TestSplitByHeaders:
     def test_offsets_are_correct(self) -> None:
         md = "## First\n\nContent.\n\n## Second\n\nMore."
         result = _split_by_headers(md)
-        for title, text, offset in result:
+        for _title, text, offset in result:
             assert md[offset : offset + len(text)] == text
 
 
