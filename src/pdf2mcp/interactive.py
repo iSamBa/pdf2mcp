@@ -653,7 +653,7 @@ def wizard_result_to_settings(result: WizardResult) -> ServerSettings:
 def _post_setup_ingest(result: WizardResult) -> None:
     """Offer to ingest PDFs if any exist in the docs directory."""
     docs_path = result.target_dir / result.docs_dir
-    pdfs = list(docs_path.glob("*.pdf"))
+    pdfs = list(docs_path.glob("**/*.pdf"))
 
     if not pdfs:
         _console.print(
