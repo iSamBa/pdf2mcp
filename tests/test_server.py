@@ -6,6 +6,10 @@ from unittest.mock import MagicMock, patch
 
 from pdf2mcp.search import SearchResult
 from pdf2mcp.server import (
+    compare_documents,
+    deep_dive,
+    document_overview,
+    extract_key_findings,
     get_sections,
     get_status,
     list_docs,
@@ -13,6 +17,7 @@ from pdf2mcp.server import (
     read_section,
     search_docs,
     search_in_doc,
+    summarize_document,
 )
 
 
@@ -428,3 +433,68 @@ class TestReadSection:
 
         result = read_section("test.pdf", "Intro")
         assert "Failed" in result
+
+
+# ── MCP Prompts ────────────────────────────────────────────────────
+
+
+class TestSummarizeDocument:
+    """Test the summarize_document prompt."""
+
+    def test_returns_string_with_tools(self) -> None:
+        result = summarize_document("manual.pdf")
+        assert isinstance(result, str)
+        assert "get_sections" in result
+        assert "read_section" in result
+        assert "manual.pdf" in result
+
+
+class TestCompareDocuments:
+    """Test the compare_documents prompt."""
+
+    def test_returns_string_with_both_filenames(self) -> None:
+        result = compare_documents("a.pdf", "b.pdf")
+        assert isinstance(result, str)
+        assert "a.pdf" in result
+        assert "b.pdf" in result
+        assert "get_sections" in result
+        assert "search_in_doc" in result
+
+
+class TestExtractKeyFindings:
+    """Test the extract_key_findings prompt."""
+
+    def test_returns_string_with_tools(self) -> None:
+        result = extract_key_findings("report.pdf")
+        assert isinstance(result, str)
+        assert "get_sections" in result
+        assert "read_section" in result
+        assert "search_in_doc" in result
+        assert "conclusion" in result
+        assert "recommendation" in result
+        assert "report.pdf" in result
+
+
+class TestDeepDive:
+    """Test the deep_dive prompt."""
+
+    def test_returns_string_with_topic(self) -> None:
+        result = deep_dive("manual.pdf", "safety protocols")
+        assert isinstance(result, str)
+        assert "safety protocols" in result
+        assert "manual.pdf" in result
+        assert "search_in_doc" in result
+        assert "read_section" in result
+        assert "read_page" in result
+
+
+class TestDocumentOverview:
+    """Test the document_overview prompt."""
+
+    def test_returns_string_with_tools(self) -> None:
+        result = document_overview("manual.pdf")
+        assert isinstance(result, str)
+        assert "list_docs" in result
+        assert "get_sections" in result
+        assert "read_section" in result
+        assert "manual.pdf" in result

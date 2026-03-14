@@ -11,7 +11,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pdf2mcp.cli import cmd_config, cmd_ingest, cmd_init, cmd_serve, main, setup_logging
+from pdf2mcp.cli import (
+    cmd_config,
+    cmd_delete,
+    cmd_ingest,
+    cmd_init,
+    cmd_search,
+    cmd_serve,
+    cmd_stats,
+    main,
+    setup_logging,
+)
 
 
 def _extract_json(output: str) -> dict:  # type: ignore[type-arg]
@@ -93,6 +103,24 @@ class TestMain:
     @patch("pdf2mcp.cli.cmd_init")
     def test_init_subcommand_calls_cmd_init(self, mock_cmd: MagicMock) -> None:
         with patch("sys.argv", ["pdf2mcp", "init"]):
+            main()
+        mock_cmd.assert_called_once()
+
+    @patch("pdf2mcp.cli.cmd_delete")
+    def test_delete_subcommand_calls_cmd_delete(self, mock_cmd: MagicMock) -> None:
+        with patch("sys.argv", ["pdf2mcp", "delete", "test.pdf"]):
+            main()
+        mock_cmd.assert_called_once()
+
+    @patch("pdf2mcp.cli.cmd_stats")
+    def test_stats_subcommand_calls_cmd_stats(self, mock_cmd: MagicMock) -> None:
+        with patch("sys.argv", ["pdf2mcp", "stats"]):
+            main()
+        mock_cmd.assert_called_once()
+
+    @patch("pdf2mcp.cli.cmd_search")
+    def test_search_subcommand_calls_cmd_search(self, mock_cmd: MagicMock) -> None:
+        with patch("sys.argv", ["pdf2mcp", "search", "test query"]):
             main()
         mock_cmd.assert_called_once()
 
@@ -503,3 +531,251 @@ class TestCmdInit:
 
         assert (tmp_path / "docs").is_dir()
         assert (tmp_path / ".env").exists()
+
+
+# ── cmd_delete ─────────────────────────────────────────────────────
+
+
+class TestCmdDelete:
+    """Test the delete subcommand."""
+
+    @patch("pdf2mcp.cli.setup_logging")
+    def test_config_error_exits_with_code_1(self, mock_logging: MagicMock) -> None:
+        args = MagicMock()
+        args.verbose = False
+        args.filename = "test.pdf"
+        args.yes = True
+
+        with patch(
+            "pdf2mcp.config.get_settings",
+            side_effect=ValueError("Missing OPENAI_API_KEY"),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_delete(args)
+            assert exc_info.value.code == 1
+
+    @patch("pdf2mcp.store.delete_ingestion_metadata")
+    @patch("pdf2mcp.store.delete_by_source")
+    @patch("pdf2mcp.store.get_ingested_files")
+    @patch("pdf2mcp.store.get_db")
+    @patch("pdf2mcp.config.get_settings")
+    @patch("pdf2mcp.cli.setup_logging")
+    def test_confirmed_delete(
+        self,
+        mock_logging: MagicMock,
+        mock_settings: MagicMock,
+        mock_get_db: MagicMock,
+        mock_ingested: MagicMock,
+        mock_delete: MagicMock,
+        mock_delete_meta: MagicMock,
+    ) -> None:
+        mock_settings.return_value = MagicMock()
+        mock_ingested.return_value = {"test.pdf": "hash123"}
+
+        args = MagicMock()
+        args.verbose = False
+        args.filename = "test.pdf"
+        args.yes = True
+
+        cmd_delete(args)
+
+        mock_delete.assert_called_once()
+        mock_delete_meta.assert_called_once()
+
+    @patch("pdf2mcp.store.get_ingested_files")
+    @patch("pdf2mcp.store.get_db")
+    @patch("pdf2mcp.config.get_settings")
+    @patch("pdf2mcp.cli.setup_logging")
+    def test_not_found_exits_with_code_1(
+        self,
+        mock_logging: MagicMock,
+        mock_settings: MagicMock,
+        mock_get_db: MagicMock,
+        mock_ingested: MagicMock,
+    ) -> None:
+        mock_settings.return_value = MagicMock()
+        mock_ingested.return_value = {}
+
+        args = MagicMock()
+        args.verbose = False
+        args.filename = "nonexistent.pdf"
+        args.yes = True
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_delete(args)
+        assert exc_info.value.code == 1
+
+    @patch("builtins.input", return_value="n")
+    @patch("pdf2mcp.store.get_ingested_files")
+    @patch("pdf2mcp.store.get_db")
+    @patch("pdf2mcp.config.get_settings")
+    @patch("pdf2mcp.cli.setup_logging")
+    def test_cancellation(
+        self,
+        mock_logging: MagicMock,
+        mock_settings: MagicMock,
+        mock_get_db: MagicMock,
+        mock_ingested: MagicMock,
+        mock_input: MagicMock,
+    ) -> None:
+        mock_settings.return_value = MagicMock()
+        mock_ingested.return_value = {"test.pdf": "hash123"}
+
+        args = MagicMock()
+        args.verbose = False
+        args.filename = "test.pdf"
+        args.yes = False
+
+        # Should not raise — just cancel
+        cmd_delete(args)
+        # delete_by_source should NOT have been called
+        with patch("pdf2mcp.store.delete_by_source") as mock_del:
+            mock_del.assert_not_called()
+
+
+# ── cmd_stats ──────────────────────────────────────────────────────
+
+
+class TestCmdStats:
+    """Test the stats subcommand."""
+
+    @patch("pdf2mcp.search.list_ingested_documents")
+    @patch("pdf2mcp.store.get_db")
+    @patch("pdf2mcp.config.get_settings")
+    @patch("pdf2mcp.cli.setup_logging")
+    def test_empty_database(
+        self,
+        mock_logging: MagicMock,
+        mock_settings: MagicMock,
+        mock_get_db: MagicMock,
+        mock_list: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        settings = MagicMock()
+        settings.data_dir = Path("/tmp/nonexistent")
+        settings.docs_dir = Path("docs")
+        settings.embedding_model = "text-embedding-3-small"
+        settings.search_mode = "semantic"
+        mock_settings.return_value = settings
+        mock_list.return_value = []
+
+        # Mock table_exists to return False
+        with patch("pdf2mcp.store.table_exists", return_value=False):
+            args = MagicMock()
+            args.verbose = False
+            cmd_stats(args)
+
+        output = capsys.readouterr().err
+        assert "Documents" in output
+        assert "0" in output
+
+    @patch("pdf2mcp.search.list_ingested_documents")
+    @patch("pdf2mcp.store.get_db")
+    @patch("pdf2mcp.config.get_settings")
+    @patch("pdf2mcp.cli.setup_logging")
+    def test_populated_database(
+        self,
+        mock_logging: MagicMock,
+        mock_settings: MagicMock,
+        mock_get_db: MagicMock,
+        mock_list: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        settings = MagicMock()
+        settings.data_dir = Path("/tmp/nonexistent")
+        settings.docs_dir = Path("docs")
+        settings.embedding_model = "text-embedding-3-small"
+        settings.search_mode = "semantic"
+        mock_settings.return_value = settings
+        mock_list.return_value = [
+            {"filename": "test.pdf", "file_hash": "abc123", "chunk_count": 10},
+        ]
+
+        with patch("pdf2mcp.store.table_exists", return_value=False):
+            args = MagicMock()
+            args.verbose = False
+            cmd_stats(args)
+
+        output = capsys.readouterr().err
+        assert "test.pdf" in output
+
+
+# ── cmd_search ─────────────────────────────────────────────────────
+
+
+class TestCmdSearch:
+    """Test the search subcommand."""
+
+    @patch("pdf2mcp.search.search_documents")
+    @patch("pdf2mcp.config.get_settings")
+    @patch("pdf2mcp.cli.setup_logging")
+    def test_basic_query(
+        self,
+        mock_logging: MagicMock,
+        mock_settings: MagicMock,
+        mock_search: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        mock_settings.return_value = MagicMock()
+        mock_search.return_value = []
+
+        args = MagicMock()
+        args.verbose = False
+        args.query = "test query"
+        args.filename = None
+        args.num_results = 5
+
+        cmd_search(args)
+
+        mock_search.assert_called_once()
+        output = capsys.readouterr().err
+        assert "No results found" in output
+
+    @patch("pdf2mcp.search.search_in_document")
+    @patch("pdf2mcp.config.get_settings")
+    @patch("pdf2mcp.cli.setup_logging")
+    def test_filename_filter(
+        self,
+        mock_logging: MagicMock,
+        mock_settings: MagicMock,
+        mock_search: MagicMock,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        mock_settings.return_value = MagicMock()
+        mock_search.return_value = []
+
+        args = MagicMock()
+        args.verbose = False
+        args.query = "test query"
+        args.filename = "manual.pdf"
+        args.num_results = 5
+
+        cmd_search(args)
+
+        mock_search.assert_called_once()
+        # Verify filename was passed
+        call_args = mock_search.call_args
+        assert call_args[0][1] == "manual.pdf"
+
+    @patch("pdf2mcp.search.search_documents")
+    @patch("pdf2mcp.config.get_settings")
+    @patch("pdf2mcp.cli.setup_logging")
+    def test_num_results_passed(
+        self,
+        mock_logging: MagicMock,
+        mock_settings: MagicMock,
+        mock_search: MagicMock,
+    ) -> None:
+        mock_settings.return_value = MagicMock()
+        mock_search.return_value = []
+
+        args = MagicMock()
+        args.verbose = False
+        args.query = "test"
+        args.filename = None
+        args.num_results = 10
+
+        cmd_search(args)
+
+        call_kwargs = mock_search.call_args
+        assert call_kwargs.kwargs["num_results"] == 10

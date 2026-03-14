@@ -19,6 +19,7 @@ from pdf2mcp.parser import discover_pdfs, parse_pdf
 from pdf2mcp.progress import IngestionProgress
 from pdf2mcp.store import (
     clear_database,
+    create_fts_index,
     create_vector_index,
     delete_by_source,
     get_db,
@@ -77,6 +78,8 @@ def run_ingestion(
     # Create vector index for faster ANN search if enough rows exist
     if ingested_count > 0:
         create_vector_index(db)
+        if settings.search_mode in ("hybrid", "keyword"):
+            create_fts_index(db)
 
     logger.info(
         "Ingestion complete: %d ingested, %d skipped",

@@ -19,10 +19,12 @@ __all__ = [
     "get_documents_table",
     "upsert_chunks",
     "delete_by_source",
+    "delete_ingestion_metadata",
     "get_ingested_files",
     "record_ingestion",
     "clear_database",
     "create_vector_index",
+    "create_fts_index",
 ]
 
 logger = logging.getLogger(__name__)
@@ -185,6 +187,16 @@ def delete_by_source(db: lancedb.DBConnection, source_file: str) -> None:
     logger.info("Deleted chunks for source: %s", source_file)
 
 
+def delete_ingestion_metadata(db: lancedb.DBConnection, filename: str) -> None:
+    """Delete ingestion metadata for a specific file."""
+    if not table_exists(db, METADATA_TABLE):
+        return
+    table = db.open_table(METADATA_TABLE)
+    escaped = escape_filter_value(filename)
+    table.delete(f"filename = '{escaped}'")
+    logger.info("Deleted ingestion metadata for: %s", filename)
+
+
 def get_ingested_files(db: lancedb.DBConnection) -> dict[str, str]:
     """Return a mapping of filename to file_hash for all ingested files."""
     if not table_exists(db, METADATA_TABLE):
@@ -260,3 +272,23 @@ def create_vector_index(db: lancedb.DBConnection) -> None:
         logger.info("Created vector index (IVF_PQ) on %d rows", row_count)
     except Exception:  # noqa: BLE001
         logger.warning("Failed to create vector index", exc_info=True)
+
+
+def create_fts_index(db: lancedb.DBConnection) -> None:
+    """Create a full-text search index on the documents table.
+
+    Enables keyword and hybrid search modes. Swallows errors
+    gracefully (like ``create_vector_index``).
+    """
+    if not table_exists(db, DOCUMENTS_TABLE):
+        return
+
+    table = db.open_table(DOCUMENTS_TABLE)
+    if table.count_rows() == 0:
+        return
+
+    try:
+        table.create_fts_index("text", replace=True)
+        logger.info("Created FTS index on documents table")
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to create FTS index", exc_info=True)

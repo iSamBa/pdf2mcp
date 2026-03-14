@@ -206,7 +206,7 @@ def _int_prompt(label: str, default: str) -> int:
 # Wizard data model
 # ---------------------------------------------------------------------------
 
-_TOTAL_STEPS = 6
+_TOTAL_STEPS = 7
 
 
 @dataclass
@@ -221,6 +221,7 @@ class WizardResult:
     embedding_model: str
     chunk_size: int
     chunk_overlap: int
+    search_mode: str
     server_name: str
     server_transport: str
     server_host: str
@@ -300,9 +301,25 @@ def _step_embedding() -> tuple[str, int, int]:
     return model, chunk_size, chunk_overlap
 
 
+def _step_search() -> str:
+    """Step 5: Search mode."""
+    print_step(5, _TOTAL_STEPS, "Search Settings")
+
+    mode = select_prompt(
+        "Search mode",
+        [
+            ("semantic", "semantic (vector similarity — default)"),
+            ("hybrid", "hybrid (vector + full-text — best accuracy)"),
+            ("keyword", "keyword (full-text only — no embeddings for search)"),
+        ],
+        default="semantic",
+    )
+    return mode
+
+
 def _step_server() -> tuple[str, str, str, int]:
-    """Step 5: Server name, transport, host, and port."""
-    print_step(5, _TOTAL_STEPS, "Server Settings")
+    """Step 6: Server name, transport, host, and port."""
+    print_step(6, _TOTAL_STEPS, "Server Settings")
 
     name = text_prompt("  Server name", default="pdf-docs")
     transport = select_prompt(
@@ -327,8 +344,8 @@ def _step_server() -> tuple[str, str, str, int]:
 
 
 def _step_ocr() -> tuple[bool, str, int]:
-    """Step 6: OCR settings."""
-    print_step(6, _TOTAL_STEPS, "OCR Settings")
+    """Step 7: OCR settings."""
+    print_step(7, _TOTAL_STEPS, "OCR Settings")
 
     enabled = confirm_prompt("  Enable OCR for scanned PDFs?", default=True)
 
@@ -397,6 +414,10 @@ def generate_env_content(result: WizardResult) -> str:
     _setting("PDF2MCP_CHUNK_OVERLAP", result.chunk_overlap, 50)
     lines.append("")
 
+    _header("Search")
+    _setting("PDF2MCP_SEARCH_MODE", result.search_mode, "semantic")
+    lines.append("")
+
     _header("Server")
     _setting("PDF2MCP_SERVER_NAME", result.server_name, "pdf-docs")
     _setting(
@@ -443,6 +464,7 @@ def _print_summary(result: WizardResult) -> None:
         "Chunk size / overlap",
         f"{result.chunk_size} / {result.chunk_overlap}",
     )
+    table.add_row("Search mode", result.search_mode)
     table.add_row("Server name", result.server_name)
     table.add_row("Transport", result.server_transport)
     if result.server_transport != "stdio":
@@ -488,6 +510,7 @@ def run_wizard(target_dir: Path) -> WizardResult:
     api_key, base_url = _step_openai()
     docs_dir = _step_docs_dir()
     model, chunk_size, chunk_overlap = _step_embedding()
+    search_mode = _step_search()
     name, transport, host, port = _step_server()
     ocr_enabled, ocr_lang, ocr_dpi = _step_ocr()
 
@@ -500,6 +523,7 @@ def run_wizard(target_dir: Path) -> WizardResult:
         embedding_model=model,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
+        search_mode=search_mode,
         server_name=name,
         server_transport=transport,
         server_host=host,
@@ -625,6 +649,7 @@ def wizard_result_to_settings(result: WizardResult) -> ServerSettings:
         embedding_model=result.embedding_model,
         chunk_size=result.chunk_size,
         chunk_overlap=result.chunk_overlap,
+        search_mode=result.search_mode,
         server_name=result.server_name,
         server_transport=result.server_transport,
         server_host=result.server_host,

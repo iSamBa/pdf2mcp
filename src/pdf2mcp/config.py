@@ -96,6 +96,16 @@ class ServerSettings(BaseSettings):
 
     # Search
     default_num_results: int = 5
+    search_mode: str = "semantic"
+
+    @field_validator("search_mode")
+    @classmethod
+    def _validate_search_mode(cls, v: str) -> str:
+        allowed = {"semantic", "hybrid", "keyword"}
+        if v not in allowed:
+            msg = f"search_mode must be one of {allowed}, got '{v}'"
+            raise ValueError(msg)
+        return v
 
     # Bind address
     server_name: str = "pdf-docs"

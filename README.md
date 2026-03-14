@@ -13,7 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
-Turn any PDF folder into a searchable MCP server with semantic search.
+Turn any PDF folder into a searchable MCP server with semantic, hybrid, or keyword search.
 
 ## Installation
 
@@ -144,6 +144,9 @@ pdf2mcp automatically detects image-only pages in PDFs and falls back to Tessera
 | `pdf2mcp ingest` | Parse PDFs, chunk, embed, and store in vector DB |
 | `pdf2mcp serve` | Start the MCP server (HTTP by default) |
 | `pdf2mcp config` | Print ready-to-paste config for MCP clients |
+| `pdf2mcp stats` | Display index statistics (doc count, chunks, DB size) |
+| `pdf2mcp search <query>` | Search the index from the command line |
+| `pdf2mcp delete <filename>` | Delete a document from the index |
 
 ### Common Flags
 
@@ -175,6 +178,18 @@ pdf2mcp config --client claude-desktop --transport stdio
 # Interactive setup wizard
 pdf2mcp init -i ./my-project
 pdf2mcp init --interactive
+
+# View index statistics
+pdf2mcp stats
+
+# Search the index from CLI
+pdf2mcp search "safety requirements"
+pdf2mcp search "torque settings" --filename manual.pdf
+pdf2mcp search "installation" -n 10
+
+# Delete a document from the index
+pdf2mcp delete old-manual.pdf
+pdf2mcp delete old-manual.pdf -y   # skip confirmation
 ```
 
 ## Client Configuration
@@ -232,9 +247,32 @@ These configure the server process. MCP clients never need these.
 | `PDF2MCP_SERVER_TRANSPORT` | `streamable-http` | Transport protocol |
 | `PDF2MCP_SERVER_HOST` | `127.0.0.1` | Host to bind to |
 | `PDF2MCP_SERVER_PORT` | `8000` | Port to bind to |
+| `PDF2MCP_SEARCH_MODE` | `semantic` | Search mode: `semantic`, `hybrid`, or `keyword` |
 | `PDF2MCP_OCR_ENABLED` | `true` | Enable OCR for scanned/image-only pages |
 | `PDF2MCP_OCR_LANGUAGE` | `eng` | Tesseract language code |
 | `PDF2MCP_OCR_DPI` | `300` | DPI for OCR rendering |
+
+## Search Modes
+
+pdf2mcp supports three search modes, controlled by the `PDF2MCP_SEARCH_MODE` environment variable:
+
+| Mode | Description | When to use |
+|------|-------------|-------------|
+| `semantic` (default) | Pure vector similarity search | General natural-language queries |
+| `keyword` | Full-text search (no embeddings needed) | Exact terms, acronyms, error codes |
+| `hybrid` | Combines vector + full-text search | Best of both worlds |
+
+To switch modes, set `PDF2MCP_SEARCH_MODE` in your `.env` and re-ingest:
+
+```bash
+# In .env
+PDF2MCP_SEARCH_MODE=hybrid
+
+# Re-ingest to build the FTS index
+pdf2mcp ingest --force
+```
+
+Hybrid and keyword modes automatically create a full-text search index. If you switch modes without re-ingesting, the FTS index is created lazily on the first query.
 
 ## MCP Tools
 
@@ -242,8 +280,8 @@ The server exposes six tools:
 
 | Tool | Description |
 |------|-------------|
-| `search_docs(query)` | Semantic search across **all** ingested PDFs |
-| `search_in_doc(query, filename)` | Semantic search scoped to a **single** document |
+| `search_docs(query)` | Search across **all** ingested PDFs |
+| `search_in_doc(query, filename)` | Search scoped to a **single** document |
 | `list_docs()` | List all ingested documents with chunk counts |
 | `get_sections(filename)` | Get section headings for a specific document |
 | `read_page(filename, page)` | Read the full content of a specific page |
@@ -255,6 +293,20 @@ The server exposes six tools:
 2. **`get_sections`** — browse a document's structure
 3. **`read_section`** or **`read_page`** — read specific content
 4. **`search_docs`** or **`search_in_doc`** — find information by query
+
+## MCP Prompts
+
+The server provides five prompts that guide LLMs through multi-tool workflows:
+
+| Prompt | Args | Description |
+|--------|------|-------------|
+| `summarize_document` | `filename` | Read all sections and synthesize a summary |
+| `compare_documents` | `filename1, filename2` | Side-by-side comparison of two documents |
+| `extract_key_findings` | `filename` | Extract conclusions, recommendations, and key findings |
+| `deep_dive` | `filename, topic` | Exhaustive analysis of a specific topic |
+| `document_overview` | `filename` | Structured table of contents with brief descriptions |
+
+Prompts return step-by-step instructions that reference the existing tools, enabling LLMs to perform complex multi-step document analysis automatically.
 
 ## MCP Resources
 

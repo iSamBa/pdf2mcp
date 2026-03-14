@@ -51,12 +51,25 @@ def _distance_to_similarity(distance: float) -> float:
     return 1.0 / (1.0 + distance)
 
 
+def _row_score(row: dict[str, Any]) -> float:
+    """Extract a normalised 0-1 similarity score from a LanceDB result row.
+
+    Semantic search returns ``_distance`` (lower = better);
+    FTS/hybrid search returns ``_score`` (higher = better).
+    """
+    if "_score" in row:
+        # FTS / hybrid: _score is a relevance score (higher = better)
+        # Normalise to 0-1 range using the same transform shape
+        return float(row["_score"]) / (1.0 + float(row["_score"]))
+    return _distance_to_similarity(row.get("_distance", 0.0))
+
+
 def _rows_to_results(rows: list[dict[str, Any]]) -> list[SearchResult]:
     """Convert raw LanceDB rows to SearchResult objects."""
     return [
         SearchResult(
             text=row["text"],
-            score=_distance_to_similarity(row.get("_distance", 0.0)),
+            score=_row_score(row),
             source_file=row["source_file"],
             page_numbers=row.get("page_numbers", []),
             section_title=row.get("section_title", ""),
@@ -78,6 +91,17 @@ def _arrow_to_row_dicts(
     ]
 
 
+def _ensure_fts_index(table: Any) -> None:
+    """Lazily create an FTS index if one doesn't exist yet.
+
+    Allows hybrid/keyword search to work without re-ingesting.
+    """
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        table.create_fts_index("text", replace=False)
+
+
 def search_documents(
     query: str,
     settings: ServerSettings,
@@ -86,8 +110,11 @@ def search_documents(
 ) -> list[SearchResult]:
     """Search ingested documents for relevant passages.
 
-    Embeds the query using the configured OpenAI model and performs
-    a vector similarity search in LanceDB.
+    Supports three search modes (controlled by ``settings.search_mode``):
+
+    - ``"semantic"`` — pure vector search (default, backward compatible).
+    - ``"keyword"`` — full-text search, no embedding needed.
+    - ``"hybrid"`` — combines vector + full-text search.
 
     Args:
         query: Natural language search query.
@@ -104,10 +131,7 @@ def search_documents(
     if num_results is None:
         num_results = settings.default_num_results
 
-    # Embed the query with caching
-    query_vector = embed_query(query.strip(), settings)
-    if query_vector is None:
-        return []
+    mode = getattr(settings, "search_mode", "semantic")
 
     # Search LanceDB using cached table handle
     table = get_documents_table(settings)
@@ -117,7 +141,31 @@ def search_documents(
         )
         return []
 
-    rows: list[dict[str, Any]] = table.search(query_vector).limit(num_results).to_list()
+    stripped = query.strip()
+
+    if mode == "keyword":
+        _ensure_fts_index(table)
+        rows: list[dict[str, Any]] = (
+            table.search(stripped, query_type="fts").limit(num_results).to_list()
+        )
+    elif mode == "hybrid":
+        query_vector = embed_query(stripped, settings)
+        if query_vector is None:
+            return []
+        _ensure_fts_index(table)
+        rows = (
+            table.search(query_type="hybrid")
+            .vector(query_vector)
+            .text(stripped)
+            .limit(num_results)
+            .to_list()
+        )
+    else:
+        # Semantic (default)
+        query_vector = embed_query(stripped, settings)
+        if query_vector is None:
+            return []
+        rows = table.search(query_vector).limit(num_results).to_list()
 
     return _rows_to_results(rows)
 
@@ -220,6 +268,8 @@ def search_in_document(
 ) -> list[SearchResult]:
     """Search within a single document by filtering on source_file.
 
+    Supports the same search modes as ``search_documents``.
+
     Args:
         query: Natural language search query.
         filename: The PDF filename to scope the search to.
@@ -235,10 +285,7 @@ def search_in_document(
     if num_results is None:
         num_results = settings.default_num_results
 
-    # Embed the query with caching
-    query_vector = embed_query(query.strip(), settings)
-    if query_vector is None:
-        return []
+    mode = getattr(settings, "search_mode", "semantic")
 
     # Use cached table handle
     table = get_documents_table(settings)
@@ -249,12 +296,38 @@ def search_in_document(
         return []
 
     escaped = escape_filter_value(filename)
-    rows: list[dict[str, Any]] = (
-        table.search(query_vector)
-        .where(f"source_file = '{escaped}'")
-        .limit(num_results)
-        .to_list()
-    )
+    where_clause = f"source_file = '{escaped}'"
+    stripped = query.strip()
+
+    if mode == "keyword":
+        _ensure_fts_index(table)
+        rows: list[dict[str, Any]] = (
+            table.search(stripped, query_type="fts")
+            .where(where_clause)
+            .limit(num_results)
+            .to_list()
+        )
+    elif mode == "hybrid":
+        query_vector = embed_query(stripped, settings)
+        if query_vector is None:
+            return []
+        _ensure_fts_index(table)
+        rows = (
+            table.search(query_type="hybrid")
+            .vector(query_vector)
+            .text(stripped)
+            .where(where_clause)
+            .limit(num_results)
+            .to_list()
+        )
+    else:
+        # Semantic (default)
+        query_vector = embed_query(stripped, settings)
+        if query_vector is None:
+            return []
+        rows = (
+            table.search(query_vector).where(where_clause).limit(num_results).to_list()
+        )
 
     return _rows_to_results(rows)
 

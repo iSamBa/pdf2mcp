@@ -33,6 +33,7 @@ def _make_result(target_dir: Path | None = None) -> WizardResult:
         embedding_model="text-embedding-3-small",
         chunk_size=500,
         chunk_overlap=50,
+        search_mode="semantic",
         server_name="pdf-docs",
         server_transport="streamable-http",
         server_host="127.0.0.1",

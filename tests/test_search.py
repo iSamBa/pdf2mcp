@@ -613,6 +613,22 @@ class TestFormatSectionChunks:
         assert "Intro" in output
         assert "test.pdf" in output
 
+    def test_score_from_fts_result(self) -> None:
+        """Test that _score from FTS results is handled correctly."""
+        from pdf2mcp.search import _row_score
+
+        # FTS results use _score (higher = better)
+        score = _row_score({"_score": 2.0})
+        assert 0.0 < score < 1.0
+        assert score == pytest.approx(2.0 / 3.0)
+
+    def test_score_from_distance_result(self) -> None:
+        """Test that _distance from vector results is handled correctly."""
+        from pdf2mcp.search import _row_score
+
+        score = _row_score({"_distance": 0.0})
+        assert score == pytest.approx(1.0)
+
     def test_formats_with_header_and_pages(self) -> None:
         chunks = [
             {
@@ -635,3 +651,122 @@ class TestFormatSectionChunks:
         assert "pages 3, 4, 5" in output
         assert "First chunk" in output
         assert "Second chunk" in output
+
+
+# ── Hybrid/Keyword Search ─────────────────────────────────────────
+
+
+class TestHybridSearch:
+    """Test hybrid and keyword search modes."""
+
+    @patch("pdf2mcp.search.embed_query")
+    def test_keyword_mode_skips_embedding(
+        self, mock_embed: MagicMock, settings: MagicMock, db: MagicMock
+    ) -> None:
+        settings.search_mode = "keyword"
+        _populate_db(db, source_file="test.pdf", count=3)
+
+        # Mock the table.search to return FTS-style results
+        mock_table = MagicMock()
+        mock_search_result = MagicMock()
+        mock_search_result.limit.return_value.to_list.return_value = [
+            {
+                "text": "keyword match",
+                "_score": 1.5,
+                "source_file": "test.pdf",
+                "page_numbers": [1],
+                "section_title": "Intro",
+            }
+        ]
+        mock_table.search.return_value = mock_search_result
+
+        with (
+            patch("pdf2mcp.search.get_documents_table", return_value=mock_table),
+            patch("pdf2mcp.search._ensure_fts_index"),
+        ):
+            results = search_documents("keyword", settings, num_results=5)
+
+        # embed_query should NOT be called for keyword mode
+        mock_embed.assert_not_called()
+        assert len(results) == 1
+        assert results[0].text == "keyword match"
+
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
+    def test_hybrid_mode_uses_both(
+        self, mock_embed: MagicMock, settings: MagicMock, db: MagicMock
+    ) -> None:
+        settings.search_mode = "hybrid"
+
+        mock_table = MagicMock()
+        mock_search_result = MagicMock()
+        hybrid_results = [
+            {
+                "text": "hybrid match",
+                "_score": 2.0,
+                "source_file": "test.pdf",
+                "page_numbers": [1],
+                "section_title": "Intro",
+            }
+        ]
+        # Chain: table.search().vector().text().limit().to_list()
+        mock_chain = (
+            mock_search_result.vector.return_value.text.return_value.limit.return_value
+        )
+        mock_chain.to_list.return_value = hybrid_results
+        mock_table.search.return_value = mock_search_result
+
+        with (
+            patch("pdf2mcp.search.get_documents_table", return_value=mock_table),
+            patch("pdf2mcp.search._ensure_fts_index"),
+        ):
+            results = search_documents("hybrid query", settings, num_results=5)
+
+        # embed_query SHOULD be called for hybrid mode
+        mock_embed.assert_called_once()
+        assert len(results) == 1
+
+    @patch("pdf2mcp.search.embed_query", return_value=[0.1] * 8)
+    def test_semantic_mode_unchanged(
+        self, mock_embed: MagicMock, settings: MagicMock, db: MagicMock
+    ) -> None:
+        settings.search_mode = "semantic"
+        _populate_db(db, source_file="test.pdf", count=3)
+
+        results = search_documents("query", settings, num_results=2)
+
+        # embed_query SHOULD be called for semantic mode
+        mock_embed.assert_called_once()
+        assert len(results) == 2
+
+    @patch("pdf2mcp.search.embed_query")
+    def test_keyword_search_in_document(
+        self, mock_embed: MagicMock, settings: MagicMock, db: MagicMock
+    ) -> None:
+        settings.search_mode = "keyword"
+
+        mock_table = MagicMock()
+        mock_search_result = MagicMock()
+        scoped_results = [
+            {
+                "text": "scoped match",
+                "_score": 1.0,
+                "source_file": "manual.pdf",
+                "page_numbers": [2],
+                "section_title": "Safety",
+            }
+        ]
+        mock_chain = mock_search_result.where.return_value.limit.return_value
+        mock_chain.to_list.return_value = scoped_results
+        mock_table.search.return_value = mock_search_result
+
+        with (
+            patch("pdf2mcp.search.get_documents_table", return_value=mock_table),
+            patch("pdf2mcp.search._ensure_fts_index"),
+        ):
+            results = search_in_document(
+                "keyword", "manual.pdf", settings, num_results=5
+            )
+
+        mock_embed.assert_not_called()
+        assert len(results) == 1
+        assert results[0].source_file == "manual.pdf"

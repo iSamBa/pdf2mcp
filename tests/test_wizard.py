@@ -31,6 +31,7 @@ def _default_result(tmp_path: Path) -> WizardResult:
         embedding_model="text-embedding-3-small",
         chunk_size=500,
         chunk_overlap=50,
+        search_mode="semantic",
         server_name="pdf-docs",
         server_transport="streamable-http",
         server_host="127.0.0.1",
@@ -82,6 +83,7 @@ class TestGenerateEnvContent:
         assert "# PDF2MCP_EMBEDDING_MODEL=text-embedding-3-small" in content
         assert "# PDF2MCP_CHUNK_SIZE=500" in content
         assert "# PDF2MCP_SERVER_PORT=8000" in content
+        assert "# PDF2MCP_SEARCH_MODE=semantic" in content
 
     def test_non_defaults_are_uncommented(self, tmp_path: Path) -> None:
         result = _default_result(tmp_path)
@@ -109,11 +111,21 @@ class TestGenerateEnvContent:
         content = generate_env_content(result)
         assert "PDF2MCP_OCR_ENABLED=false" in content
 
+    def test_non_default_search_mode_uncommented(self, tmp_path: Path) -> None:
+        result = _default_result(tmp_path)
+        result.search_mode = "hybrid"
+        content = generate_env_content(result)
+        assert "PDF2MCP_SEARCH_MODE=hybrid" in content
+        for line in content.splitlines():
+            if "PDF2MCP_SEARCH_MODE=hybrid" in line:
+                assert not line.startswith("#")
+
     def test_has_section_headers(self, tmp_path: Path) -> None:
         content = generate_env_content(_default_result(tmp_path))
         assert "OpenAI" in content
         assert "Paths" in content
         assert "Embedding" in content
+        assert "Search" in content
         assert "Server" in content
         assert "OCR" in content
 
@@ -129,6 +141,7 @@ class TestRunWizard:
     @patch("pdf2mcp.interactive.print_banner")
     @patch("pdf2mcp.interactive._step_ocr")
     @patch("pdf2mcp.interactive._step_server")
+    @patch("pdf2mcp.interactive._step_search")
     @patch("pdf2mcp.interactive._step_embedding")
     @patch("pdf2mcp.interactive._step_docs_dir")
     @patch("pdf2mcp.interactive._step_openai")
@@ -139,6 +152,7 @@ class TestRunWizard:
         mock_openai: MagicMock,
         mock_docs: MagicMock,
         mock_embed: MagicMock,
+        mock_search: MagicMock,
         mock_server: MagicMock,
         mock_ocr: MagicMock,
         mock_banner: MagicMock,
@@ -155,6 +169,7 @@ class TestRunWizard:
             500,
             50,
         )
+        mock_search.return_value = "semantic"
         mock_server.return_value = (
             "pdf-docs",
             "streamable-http",
@@ -169,12 +184,14 @@ class TestRunWizard:
         assert result.openai_api_key == "sk-testkey123456"
         assert result.docs_dir == "docs"
         assert result.embedding_model == "text-embedding-3-small"
+        assert result.search_mode == "semantic"
         assert result.server_transport == "streamable-http"
         assert result.ocr_enabled is True
 
     @patch("pdf2mcp.interactive.print_banner")
     @patch("pdf2mcp.interactive._step_ocr")
     @patch("pdf2mcp.interactive._step_server")
+    @patch("pdf2mcp.interactive._step_search")
     @patch("pdf2mcp.interactive._step_embedding")
     @patch("pdf2mcp.interactive._step_docs_dir")
     @patch("pdf2mcp.interactive._step_openai")
@@ -185,6 +202,7 @@ class TestRunWizard:
         mock_openai: MagicMock,
         mock_docs: MagicMock,
         mock_embed: MagicMock,
+        mock_search: MagicMock,
         mock_server: MagicMock,
         mock_ocr: MagicMock,
         mock_banner: MagicMock,
@@ -202,6 +220,7 @@ class TestRunWizard:
             1000,
             100,
         )
+        mock_search.return_value = "hybrid"
         mock_server.return_value = (
             "my-server",
             "stdio",
@@ -217,6 +236,7 @@ class TestRunWizard:
         assert result.docs_dir == "pdfs"
         assert result.embedding_model == "text-embedding-3-large"
         assert result.chunk_size == 1000
+        assert result.search_mode == "hybrid"
         assert result.server_transport == "stdio"
         assert result.ocr_enabled is False
 
