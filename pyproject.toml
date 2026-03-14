@@ -50,6 +50,8 @@ packages = ["src/pdf2mcp"]
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-timeout>=2.2",
     "ruff>=0.4",
     "mypy>=1.10",
 ]
@@ -71,3 +73,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "e2e: End-to-end tests (full pipeline, may be slow)",
+]
