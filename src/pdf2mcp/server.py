@@ -197,6 +197,136 @@ def get_sections(filename: str) -> str:
         return f"Failed to get sections for '{filename}'."
 
 
+@mcp.prompt()
+def summarize_document(filename: str) -> str:
+    """Generate a comprehensive summary of a document.
+
+    Guides the LLM through a multi-step workflow using available tools
+    to read and synthesize all sections of the specified document.
+
+    Args:
+        filename: The PDF filename to summarize (e.g., 'manual.pdf').
+    """
+    return (
+        f"Please summarize the document '{filename}' by following these steps:\n\n"
+        f"1. Use get_sections(filename='{filename}') to get the document's "
+        f"table of contents.\n"
+        f"2. For each section returned, use "
+        f"read_section(filename='{filename}', section_title=<title>) "
+        f"to read its full content.\n"
+        f"3. Synthesize all sections into a coherent, comprehensive summary "
+        f"that captures the document's key points, structure, and conclusions.\n\n"
+        f"Keep the summary well-organized with clear headings."
+    )
+
+
+@mcp.prompt()
+def compare_documents(filename1: str, filename2: str) -> str:
+    """Compare two documents side by side.
+
+    Guides the LLM through reading both documents and producing
+    a structured comparison.
+
+    Args:
+        filename1: First PDF filename to compare.
+        filename2: Second PDF filename to compare.
+    """
+    return (
+        f"Please compare '{filename1}' and '{filename2}' by following these steps:\n\n"
+        f"1. Use get_sections(filename='{filename1}') and "
+        f"get_sections(filename='{filename2}') to get both documents' structures.\n"
+        f"2. For each document, use read_section() to read key sections.\n"
+        f"3. Use search_in_doc() to find comparable topics across both documents.\n"
+        f"4. Produce a structured comparison highlighting:\n"
+        f"   - Common themes and topics\n"
+        f"   - Key differences\n"
+        f"   - Unique content in each document\n"
+        f"   - Overall assessment"
+    )
+
+
+@mcp.prompt()
+def extract_key_findings(filename: str) -> str:
+    """Extract key findings, conclusions, and recommendations from a document.
+
+    Guides the LLM through a targeted reading workflow focused on
+    extractive analysis.
+
+    Args:
+        filename: The PDF filename to analyze (e.g., 'report.pdf').
+    """
+    return (
+        f"Please extract key findings from '{filename}' by following these steps:\n\n"
+        f"1. Use get_sections(filename='{filename}') to get the document structure.\n"
+        f"2. Use read_section() to read sections that are likely to contain "
+        f"findings (e.g., conclusion, results, recommendations, summary).\n"
+        f"3. Use search_in_doc(query='conclusion', filename='{filename}') and "
+        f"search_in_doc(query='recommendation', filename='{filename}') to find "
+        f"additional relevant passages.\n"
+        f"4. Compile a structured list of:\n"
+        f"   - Key findings\n"
+        f"   - Main conclusions\n"
+        f"   - Recommendations (if any)\n"
+        f"   - Supporting evidence for each point"
+    )
+
+
+@mcp.prompt()
+def deep_dive(filename: str, topic: str) -> str:
+    """Perform a deep analysis of a specific topic within a document.
+
+    Guides the LLM through an exhaustive search and reading workflow
+    to thoroughly analyze a topic.
+
+    Args:
+        filename: The PDF filename to analyze.
+        topic: The topic to investigate in depth.
+    """
+    return (
+        f"Please perform a deep dive into '{topic}' within '{filename}' "
+        f"by following these steps:\n\n"
+        f"1. Use search_in_doc(query='{topic}', filename='{filename}', "
+        f"num_results=10) to find all relevant passages.\n"
+        f"2. Use get_sections(filename='{filename}') to understand the "
+        f"document structure.\n"
+        f"3. For each relevant section identified, use read_section() to "
+        f"read the full content.\n"
+        f"4. Use read_page() for any specific pages referenced in the results.\n"
+        f"5. Provide a thorough analysis of '{topic}' including:\n"
+        f"   - All relevant information found\n"
+        f"   - Context and background\n"
+        f"   - Connections between different parts of the document\n"
+        f"   - Any gaps or areas not covered"
+    )
+
+
+@mcp.prompt()
+def document_overview(filename: str) -> str:
+    """Generate a structured overview of a document's contents.
+
+    Guides the LLM through building a comprehensive table of contents
+    with brief descriptions.
+
+    Args:
+        filename: The PDF filename to overview (e.g., 'manual.pdf').
+    """
+    return (
+        f"Please create a structured overview of '{filename}' by following "
+        f"these steps:\n\n"
+        f"1. Use list_docs() to confirm the document is available.\n"
+        f"2. Use get_sections(filename='{filename}') to get the full "
+        f"table of contents.\n"
+        f"3. For each section, use read_section(filename='{filename}', "
+        f"section_title=<title>) to read a brief portion.\n"
+        f"4. Produce a structured overview with:\n"
+        f"   - Document title and metadata\n"
+        f"   - Numbered table of contents with brief (1-2 sentence) "
+        f"descriptions of each section\n"
+        f"   - Overall document scope and purpose\n"
+        f"   - Suggested reading order or key sections to focus on"
+    )
+
+
 @mcp.resource("docs://status")
 def get_status() -> str:
     """Current status of the documentation server."""

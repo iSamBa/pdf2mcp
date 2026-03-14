@@ -165,6 +165,33 @@ class TestOcrSettingsValidation:
             Settings()
 
 
+class TestSearchModeSettings:
+    """Test search_mode validation."""
+
+    def test_default_is_semantic(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        settings = Settings()
+        assert settings.search_mode == "semantic"
+
+    def test_hybrid_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_SEARCH_MODE", "hybrid")
+        settings = Settings()
+        assert settings.search_mode == "hybrid"
+
+    def test_keyword_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_SEARCH_MODE", "keyword")
+        settings = Settings()
+        assert settings.search_mode == "keyword"
+
+    def test_invalid_mode_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        monkeypatch.setenv("PDF2MCP_SEARCH_MODE", "invalid")
+        with pytest.raises(ValidationError, match="search_mode"):
+            Settings()
+
+
 class TestSettingsOverrides:
     """Test that custom env vars override defaults."""
 

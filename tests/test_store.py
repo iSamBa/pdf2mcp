@@ -11,7 +11,9 @@ import pytest
 from pdf2mcp.models import ChunkMetadata, DocumentChunk
 from pdf2mcp.store import (
     clear_database,
+    create_fts_index,
     delete_by_source,
+    delete_ingestion_metadata,
     get_db,
     get_ingested_files,
     invalidate_table_cache,
@@ -187,3 +189,52 @@ class TestClearDatabase:
     def test_clears_empty_database(self, db):  # type: ignore[no-untyped-def]
         # Should not raise
         clear_database(db)
+
+
+class TestDeleteIngestionMetadata:
+    """Test deletion of ingestion metadata."""
+
+    def test_removes_record(self, db):  # type: ignore[no-untyped-def]
+        record_ingestion(db, "test.pdf", "hash123", 10)
+        record_ingestion(db, "other.pdf", "hash456", 5)
+
+        delete_ingestion_metadata(db, "test.pdf")
+
+        ingested = get_ingested_files(db)
+        assert "test.pdf" not in ingested
+        assert "other.pdf" in ingested
+
+    def test_noop_on_missing_table(self, db):  # type: ignore[no-untyped-def]
+        # Should not raise when metadata table doesn't exist
+        delete_ingestion_metadata(db, "nonexistent.pdf")
+
+    def test_noop_on_missing_file(self, db):  # type: ignore[no-untyped-def]
+        record_ingestion(db, "test.pdf", "hash123", 10)
+        # Should not raise when file not in metadata
+        delete_ingestion_metadata(db, "nonexistent.pdf")
+        ingested = get_ingested_files(db)
+        assert "test.pdf" in ingested
+
+
+class TestCreateFtsIndex:
+    """Test FTS index creation."""
+
+    def test_creates_index_on_populated_table(self, db):  # type: ignore[no-untyped-def]
+        chunks = _make_chunks(count=3)
+        embeddings = _make_embeddings(count=3)
+        upsert_chunks(db, chunks, embeddings, dimensions=8)
+
+        # Should not raise
+        create_fts_index(db)
+
+    def test_noop_on_missing_table(self, db):  # type: ignore[no-untyped-def]
+        # Should not raise
+        create_fts_index(db)
+
+    def test_noop_on_empty_table(self, db):  # type: ignore[no-untyped-def]
+        from pdf2mcp.store import _get_documents_schema
+
+        schema = _get_documents_schema(8)
+        db.create_table("documents", schema=schema)
+        # Should not raise
+        create_fts_index(db)

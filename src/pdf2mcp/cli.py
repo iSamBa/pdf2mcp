@@ -34,6 +34,9 @@ OPENAI_API_KEY=sk-your-api-key-here
 # PDF2MCP_SERVER_HOST=127.0.0.1
 # PDF2MCP_SERVER_PORT=8000
 
+# Optional: Search mode (semantic, hybrid, or keyword)
+# PDF2MCP_SEARCH_MODE=semantic
+
 # Optional: OCR settings (for scanned/image-only PDFs — requires Tesseract)
 # PDF2MCP_OCR_ENABLED=true
 # PDF2MCP_OCR_LANGUAGE=eng
@@ -166,6 +169,134 @@ def cmd_config(args: argparse.Namespace) -> None:
                 "Start the server separately and use another client, "
                 "or pass --transport stdio."
             )
+
+
+def cmd_delete(args: argparse.Namespace) -> None:
+    """Delete a document from the index."""
+    setup_logging(args.verbose)
+    logger = logging.getLogger("pdf2mcp")
+
+    settings = _load_settings()
+
+    from pdf2mcp.store import (
+        delete_by_source,
+        delete_ingestion_metadata,
+        get_db,
+        get_ingested_files,
+        invalidate_table_cache,
+    )
+
+    db = get_db(settings)
+    ingested = get_ingested_files(db)
+
+    filename = args.filename
+    if filename not in ingested:
+        logger.error("File '%s' not found in index", filename)
+        sys.exit(1)
+
+    if not args.yes:
+        answer = input(f"Delete '{filename}' from index? [y/N] ")
+        if answer.lower() not in ("y", "yes"):
+            print("Cancelled.", file=sys.stderr)
+            return
+
+    delete_by_source(db, filename)
+    delete_ingestion_metadata(db, filename)
+    invalidate_table_cache()
+    logger.info("Deleted '%s' from index", filename)
+
+
+def _format_bytes(size: int) -> str:
+    """Format a byte count into a human-readable string."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024  # type: ignore[assignment]
+    return f"{size:.1f} TB"
+
+
+def cmd_stats(args: argparse.Namespace) -> None:
+    """Display index statistics."""
+    setup_logging(args.verbose)
+
+    settings = _load_settings()
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from pdf2mcp.search import list_ingested_documents
+    from pdf2mcp.store import DOCUMENTS_TABLE, get_db, table_exists
+
+    console = Console(stderr=True)
+    db = get_db(settings)
+    docs = list_ingested_documents(settings)
+    total_chunks = sum(doc.get("chunk_count", 0) for doc in docs)
+
+    # Compute average chunk size
+    avg_chunk_size = 0
+    if table_exists(db, DOCUMENTS_TABLE) and total_chunks > 0:
+        table = db.open_table(DOCUMENTS_TABLE)
+        arrow_table = table.to_arrow()
+        texts = arrow_table.column("text").to_pylist()
+        avg_chunk_size = sum(len(t) for t in texts) // len(texts) if texts else 0
+
+    # Compute DB size on disk
+    db_path = settings.data_dir / "lancedb"
+    db_size = 0
+    if db_path.exists():
+        for f in db_path.rglob("*"):
+            if f.is_file():
+                db_size += f.stat().st_size
+
+    # Summary table
+    summary = Table(title="pdf2mcp Index Statistics", show_header=False)
+    summary.add_column("Key", style="bold")
+    summary.add_column("Value")
+    summary.add_row("Documents", str(len(docs)))
+    summary.add_row("Total chunks", str(total_chunks))
+    summary.add_row("Avg chunk size", f"{avg_chunk_size} chars")
+    summary.add_row("Embedding model", settings.embedding_model)
+    summary.add_row("Search mode", getattr(settings, "search_mode", "semantic"))
+    summary.add_row("Database size", _format_bytes(db_size))
+    summary.add_row("Docs directory", str(settings.docs_dir))
+    summary.add_row("Data directory", str(settings.data_dir))
+    console.print(summary)
+
+    # Per-document table
+    if docs:
+        doc_table = Table(title="Ingested Documents")
+        doc_table.add_column("Filename")
+        doc_table.add_column("Chunks", justify="right")
+        doc_table.add_column("Hash")
+        for doc in docs:
+            doc_table.add_row(
+                doc["filename"],
+                str(doc["chunk_count"]),
+                doc.get("file_hash", "?")[:12],
+            )
+        console.print(doc_table)
+
+
+def cmd_search(args: argparse.Namespace) -> None:
+    """Search the index from the command line."""
+    setup_logging(args.verbose)
+
+    settings = _load_settings()
+
+    from pdf2mcp.search import (
+        format_results,
+        search_documents,
+        search_in_document,
+    )
+
+    if args.filename:
+        results = search_in_document(
+            args.query, args.filename, settings, num_results=args.num_results
+        )
+    else:
+        results = search_documents(args.query, settings, num_results=args.num_results)
+
+    print(format_results(results), file=sys.stderr)
 
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -324,6 +455,45 @@ def main() -> None:
         help="Print config for a specific client only",
     )
 
+    # delete subcommand
+    delete_parser = subparsers.add_parser(
+        "delete", help="Delete a document from the index"
+    )
+    delete_parser.add_argument("filename", help="PDF filename to delete")
+    delete_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable debug logging"
+    )
+    delete_parser.add_argument(
+        "-y", "--yes", action="store_true", help="Skip confirmation prompt"
+    )
+
+    # stats subcommand
+    stats_parser = subparsers.add_parser("stats", help="Display index statistics")
+    stats_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable debug logging"
+    )
+
+    # search subcommand
+    search_parser = subparsers.add_parser(
+        "search", help="Search the index from the command line"
+    )
+    search_parser.add_argument("query", help="Search query")
+    search_parser.add_argument(
+        "-n",
+        "--num-results",
+        type=int,
+        default=5,
+        help="Number of results to return (default: 5)",
+    )
+    search_parser.add_argument(
+        "--filename",
+        default=None,
+        help="Restrict search to a specific document",
+    )
+    search_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable debug logging"
+    )
+
     # init subcommand
     init_parser = subparsers.add_parser(
         "init", help="Scaffold a working directory for pdf2mcp"
@@ -351,6 +521,12 @@ def main() -> None:
         cmd_config(args)
     elif args.command == "init":
         cmd_init(args)
+    elif args.command == "delete":
+        cmd_delete(args)
+    elif args.command == "stats":
+        cmd_stats(args)
+    elif args.command == "search":
+        cmd_search(args)
     else:
         parser.print_help(sys.stderr)
         sys.exit(1)
